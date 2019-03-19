@@ -18,6 +18,7 @@
 # under the License.
 
 import datetime
+import numpy as np
 import os
 import plpy
 import time
@@ -28,9 +29,11 @@ from keras.layers import *
 from keras.models import *
 from keras.optimizers import *
 from keras.regularizers import *
-import numpy as np
 
-from madlib_keras_helper import *
+from madlib_keras_helper import KerasWeightsSerializer
+from madlib_keras_helper import get_data_as_np_array
+from madlib_keras_wrapper import *
+
 from utilities.model_arch_info import get_input_shape
 from utilities.validate_args import input_tbl_valid
 from utilities.validate_args import output_tbl_valid
@@ -38,6 +41,7 @@ from utilities.utilities import _assert
 from utilities.utilities import add_postfix
 from utilities.utilities import is_var_valid
 from utilities.utilities import madlib_version
+
 
 def _validate_input_table(source_table, independent_varname,
                           dependent_varname):
@@ -155,7 +159,7 @@ def fit(schema_madlib, source_table, model, dependent_varname,
 
     if model_weights_serialized:
         # If warm start from previously trained model, set weights
-        model_weights = deserialize_weights_orig(model_weights_serialized, model_shapes)
+        model_weights = KerasWeightsSerializer.deserialize_weights_orig(model_weights_serialized, model_shapes)
         master_model.set_weights(model_weights)
 
     end_deserialization = time.time()
@@ -205,7 +209,7 @@ def fit(schema_madlib, source_table, model, dependent_varname,
                    use_gpu, source_table), ["bytea"])
 
     # Define the state for the model and loss/accuracy storage lists
-    model_state = serialize_weights(0, 0, 0, model_weights)
+    model_state = KerasWeightsSerializer.serialize_weights(0, 0, 0, model_weights)
     aggregate_loss, aggregate_accuracy, aggregate_runtime = [], [], []
 
     plpy.info("Model architecture size: {}KB".format(len(model_arch)/1024))
@@ -225,11 +229,11 @@ def fit(schema_madlib, source_table, model, dependent_varname,
         plpy.info("Time for iteration {0}: {1} sec".
                   format(i + 1, end_iteration - start_iteration))
         aggregate_runtime.append(datetime.datetime.now())
-        avg_loss, avg_accuracy, model_state = deserialize_iteration_state(iteration_result)
+        avg_loss, avg_accuracy, model_state = KerasWeightsSerializer.deserialize_iteration_state(iteration_result)
         plpy.info("Average loss after training iteration {0}: {1}".format(i + 1, avg_loss))
         plpy.info("Average accuracy after training iteration {0}: {1}".format(i + 1, avg_accuracy))
         if validation_set_provided:
-            _, _, _, updated_weights = deserialize_weights(model_state, model_shapes)
+            _, _, _, updated_weights = KerasWeightsSerializer.deserialize_weights(model_state, model_shapes)
             master_model.set_weights(updated_weights)
             compile_params_args = convert_string_of_args_to_dict(compile_params)
             master_model.compile(**compile_params_args)
@@ -403,8 +407,8 @@ def fit_transition(state, ind_var, dep_var, current_seg_id, num_classes,
         # plpy.info('final buffer loss {}, accuracy {}, buffer count {}'.format(loss, accuracy, SD['buffer_count']))
         clear_keras_session()
 
-    new_model_state = serialize_weights(updated_loss, updated_accuracy,
-                                        SD['buffer_count'], updated_weights)
+    new_model_state = KerasWeightsSerializer.serialize_weights(updated_loss, updated_accuracy,
+                                            SD['buffer_count'], updated_weights)
     # new_model_state[2] += len(x_train)
 
     del x_train
@@ -422,8 +426,10 @@ def fit_merge(state1, state2, **kwargs):
         return state1 or state2
 
     # Deserialize states
-    loss1, accuracy1, buffer_count1, weights1 = deserialize_weights_merge(state1)
-    loss2, accuracy2, buffer_count2, weights2 = deserialize_weights_merge(state2)
+    loss1, accuracy1, buffer_count1, weights1 = KerasWeightsSerializer.deserialize_weights_merge(
+        state1)
+    loss2, accuracy2, buffer_count2, weights2 = KerasWeightsSerializer.deserialize_weights_merge(
+        state2)
         # plpy.info('merge buffer loss1 {}, accuracy1 {}, buffer count1 {}'.format(loss1, accuracy1, buffer_count1))
     # plpy.info('merge buffer loss2 {}, accuracy2 {}, buffer count2 {}'.format(loss2, accuracy2, buffer_count2))
 
@@ -449,7 +455,8 @@ def fit_merge(state1, state2, **kwargs):
     # avg_weights = [(merge_weight1 * e1) + (merge_weight2 * e2) for e1, e2 in zip(weights1, weights2)]
 
     # Return the merged state
-    return serialize_weights_merge(avg_loss, avg_accuracy, total_buffers, avg_weights)
+    return KerasWeightsSerializer.serialize_weights_merge(
+        avg_loss, avg_accuracy, total_buffers, avg_weights)
 
 def fit_final(state, **kwargs):
     return state
@@ -481,7 +488,7 @@ def evaluate(schema_madlib, model_table, source_table, id_col, model_arch_table,
     model_shapes = []
     for weight_arr in model.get_weights():
         model_shapes.append(weight_arr.shape)
-    _, updated_weights = deserialize_weights(model_data, model_shapes)
+    _, updated_weights = KerasWeightsSerializer.deserialize_weights(model_data, model_shapes)
     model.set_weights(updated_weights)
     compile_params_args = convert_string_of_args_to_dict(compile_params)
     with K.tf.device(device_name):
@@ -547,7 +554,7 @@ def internal_keras_evaluate(x_test, y_test, model_arch, model_data, input_shape,
     model_shapes = []
     for weight_arr in model.get_weights():
         model_shapes.append(weight_arr.shape)
-    _, model_weights = deserialize_weights(model_data, model_shapes)
+    _, model_weights = KerasWeightsSerializer.deserialize_weights(model_data, model_shapes)
     model.set_weights(model_weights)
     with K.tf.device(device_name):
         model.compile(**compile_params)
@@ -560,74 +567,3 @@ def internal_keras_evaluate(x_test, y_test, model_arch, model_data, input_shape,
         res = model.evaluate(x_test, y_test)
     plpy.info('evaluate result from internal_keras_evaluate is {}'.format(res))
     return res
-
-def deserialize_iteration_state(iteration_result):
-    """
-    Parameters:
-        iteration_result: the output of the step function
-    Returns:
-        loss: the averaged loss from that iteration of training
-        accuracy: the averaged accuracy from that iteration of training
-        new_model_state: the stringified (serialized) state to pass in to next
-        iteration of step function training, represents the averaged weights
-        from the last iteration of training; zeros out loss, accuracy,
-        buffer_count in this state because the new iteration must start with
-        fresh values
-    """
-    if not iteration_result:
-        return None
-    state = np.fromstring(iteration_result, dtype=np.float32)
-    new_model_string = np.array(state)
-    new_model_string[0], new_model_string[1], new_model_string[2] = 0, 0, 0
-    new_model_string = np.float32(new_model_string)
-    return float(state[0]), float(state[1]), new_model_string.tostring()
-
-def deserialize_weights_merge(state):
-    """
-    Parameters:
-        state: the stringified (serialized) state containing loss, accuracy, buffer_count, and
-            model_weights, passed from postgres to merge function
-    Returns:
-        loss: the averaged loss from that iteration of training
-        accuracy: the averaged accuracy from that iteration of training
-        buffer_count: total buffer counts processed
-        model_weights: a single flattened numpy array containing all of the
-        weights, flattened because all we have to do is average them (so don't
-        have to reshape)
-    """
-    if not state:
-        return None
-    state = np.fromstring(state, dtype=np.float32)
-    return float(state[0]), float(state[1]), int(float(state[2])), state[3:]
-
-def serialize_weights_merge(loss, accuracy, buffer_count, model_weights):
-    """
-    Parameters:
-        loss, accuracy, buffer_count: float values
-        model_weights: a single flattened numpy array containing all of the
-        weights, averaged in merge function over the 2 states
-    Returns:
-        A stringified (serialized) state containing all these values, to be
-        passed to postgres
-    """
-    if model_weights is None:
-        return None
-    new_model_string = np.array([loss, accuracy, buffer_count])
-    new_model_string = np.concatenate((new_model_string, model_weights))
-    new_model_string = np.float32(new_model_string)
-    return new_model_string.tostring()
-
-#### OTHER FUNCTIONS ####
-
-def deserialize_weights_orig(model_weights_serialized, model_shapes):
-    """
-    Original deserialization for warm-start, used only to parse model received
-    from query at the top of this file
-    """
-    i, j, model_weights = 0, 0, []
-    while j < len(model_shapes):
-        next_pointer = i + reduce(lambda x, y: x * y, model_shapes[j])
-        weight_arr_portion = model_weights_serialized[i:next_pointer]
-        model_weights.append(np.array(weight_arr_portion).reshape(model_shapes[j]))
-        i, j = next_pointer, j + 1
-    return model_weights
