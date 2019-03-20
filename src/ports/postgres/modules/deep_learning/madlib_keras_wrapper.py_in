@@ -54,19 +54,13 @@ def clear_keras_session():
     sess.close()
 
 def compile_and_set_weights(segment_model, compile_params, device_name,
-                            previous_state):
-    model_shapes = []
+                            previous_state, model_shapes):
     with K.tf.device(device_name):
         compile_params = convert_string_of_args_to_dict(compile_params)
         segment_model.compile(**compile_params)
-        # prev_segment_model.compile(**compile_params)
-        for a in segment_model.get_weights():
-            model_shapes.append(a.shape)
-
-        agg_loss, agg_accuracy, _, model_weights = KerasWeightsSerializer.deserialize_weights(
+        _, _, _, model_weights = KerasWeightsSerializer.deserialize_weights(
             previous_state, model_shapes)
         segment_model.set_weights(model_weights)
-# prev_model.set_weights(model_weights)
 
 
 """

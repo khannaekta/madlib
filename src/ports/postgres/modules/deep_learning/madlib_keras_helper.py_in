@@ -28,6 +28,14 @@ from keras import utils as keras_utils
 ########### Helper functions to serialize and deserialize weights #####
 #######################################################################
 class KerasWeightsSerializer:
+
+    @staticmethod
+    def get_model_shapes(model):
+        model_shapes = []
+        for a in model.get_weights():
+            model_shapes.append(a.shape)
+        return model_shapes
+
     @staticmethod
     def deserialize_weights(model_state, model_shapes):
         """

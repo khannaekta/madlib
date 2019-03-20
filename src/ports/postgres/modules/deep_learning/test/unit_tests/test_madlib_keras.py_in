@@ -58,6 +58,10 @@ class MadlibKerasFitTestCase(unittest.TestCase):
         self.compile_params = "'optimizer'=SGD(lr=0.01, decay=1e-6, nesterov=True), 'loss'='categorical_crossentropy', 'metrics'=['accuracy']"
         self.fit_params = "'batch_size'=1, 'epochs'=1"
         self.model_weights = [3,4,5,6]
+        self.model_shapes = []
+        for a in self.model.get_weights():
+            self.model_shapes.append(a.shape)
+
         self.loss = 1.3
         self.accuracy = 0.34
         self.all_seg_ids = [0,1,2]
@@ -89,6 +93,7 @@ class MadlibKerasFitTestCase(unittest.TestCase):
         self.assertEqual(0, self.subject.clear_keras_session.call_count)
         self.assertEqual(1, k['SD']['buffer_count'])
         self.assertTrue(k['SD']['segment_model'])
+        self.assertTrue(k['SD']['model_shapes'])
 
     def test_fit_transition_last_buffer_pass(self):
         #TODO should we mock tensorflow's close_session and keras'
@@ -103,8 +108,9 @@ class MadlibKerasFitTestCase(unittest.TestCase):
         state = np.array(state, dtype=np.float32)
 
         self.subject.compile_and_set_weights(self.model, self.compile_params,
-                                             '/cpu:0', state.tostring())
-        k = {'SD': {'buffer_count': buffer_count}}
+                                             '/cpu:0', state.tostring(), self.model_shapes)
+        k = {'SD': {'buffer_count': buffer_count,
+                   'model_shapes': self.model_shapes}}
         k['SD']['segment_model'] = self.model
         new_model_state = self.subject.fit_transition(
             state.tostring(), [[0.5]] , [0], 1, 2, self.all_seg_ids, self.total_buffers_per_seg,
@@ -131,8 +137,9 @@ class MadlibKerasFitTestCase(unittest.TestCase):
         state = np.array(state, dtype=np.float32)
 
         self.subject.compile_and_set_weights(self.model, self.compile_params,
-                                             '/cpu:0', state.tostring())
-        k = {'SD': {'buffer_count': buffer_count}}
+                                             '/cpu:0', state.tostring(), self.model_shapes)
+        k = {'SD': {'buffer_count': buffer_count,
+                   'model_shapes': self.model_shapes}}
         k['SD']['segment_model'] = self.model
         new_model_state = self.subject.fit_transition(
             state.tostring(), [[0.5]] , [0], 1, 2, self.all_seg_ids, self.total_buffers_per_seg,
