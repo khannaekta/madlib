@@ -26,6 +26,7 @@ from keras import utils as keras_utils
 from keras.optimizers import *
 
 from madlib_keras_helper import KerasWeightsSerializer
+from utilities.utilities import extract_keyvalue_params
 
 #######################################################################
 ########### Keras specific functions #####
@@ -69,23 +70,21 @@ Used to convert compile_params and fit_params to actual argument dictionaries
 def convert_string_of_args_to_dict(str_of_args):
     """Uses parenthases matching algorithm to intelligently convert
     a string with valid python code into an argument dictionary"""
-    stack = []
-    dual = {
-        '(' : ')',
-        '[' : ']',
-        '{' : '}',
+
+    param_defaults = {
+        "optimizer_name": 'sgd'),
+        "optimizer_params": '')
     }
-    result_str = ""
-    for char in str_of_args:
-        if char in dual.keys():
-            stack.append(char)
-            result_str += char
-        elif char in dual.values() and stack:
-            if dual[stack[-1]] == char:
-                stack.pop(-1)
-            result_str += char
-        elif not stack and char == "=":
-            result_str += ":"
-        else:
-            result_str += char
-    return eval('{' + result_str + '}')
+    param_types = {
+        "optimizer_name": str),
+        "optimizer_params": str)
+    }
+    valid_optimizers = ['sgd', 'rmsprop', 'adagrad', 'adadelta', 'adam',
+                        'adamax', 'nadam']
+    optimizer_name,optimizer_params = extract_keyvalue_params(
+        str_of_args, param_types, param_defaults, ignore_invalid=False)
+
+    _assert(optimizer_name.lower() in valid_optimizers,
+        "DL error: Optimizer name not recognized: " + optimizer_name)
+
+    return eval('{' + optimizer_name + "(" + optimizer_params + ')}')
