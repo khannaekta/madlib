@@ -155,9 +155,12 @@ class MadlibKerasFitTestCase(unittest.TestCase):
 
     def test_get_device_name_for_keras(self):
         import os
-        self.assertEqual('/gpu:0', self.subject.get_device_name_for_keras(True, 1, 3))
-        self.assertEqual('/cpu:0', self.subject.get_device_name_for_keras(False, 1, 3))
-        self.assertEqual('-1', os.environ["CUDA_VISIBLE_DEVICES"] )
+        self.assertEqual('/gpu:0', self.subject.get_device_name_for_keras(
+            True, 1, 3))
+        self.assertEqual('1', os.environ["CUDA_VISIBLE_DEVICES"])
+        self.assertEqual('/cpu:0', self.subject.get_device_name_for_keras(
+            False, 1, 3))
+        self.assertEqual('-1', os.environ["CUDA_VISIBLE_DEVICES"])
 
     def test_fit_transition_first_tuple_none_ind_var_dep_var(self):
         k = {}

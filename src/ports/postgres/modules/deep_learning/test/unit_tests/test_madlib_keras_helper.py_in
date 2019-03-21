@@ -95,13 +95,15 @@ class MadlibKerasHelperTestCase(unittest.TestCase):
         invalid_model_state = np.array([0,1,2], dtype=np.float32)
         dummy_model_shape = [(2, 1, 1, 1), (1,)]
 
-        # we except keras failure(ValueError) because we cannot reshape model weights of size 0 into shape (2,2,3,1)
+        # we expect keras failure(ValueError) because we cannot reshape
+        # model weights of size 0 into shape (2,2,3,1)
         with self.assertRaises(ValueError):
             self.subject.KerasWeightsSerializer.deserialize_weights(invalid_model_state.tostring(), dummy_model_shape)
 
         invalid_model_state = np.array([0,1,2,3,4], dtype=np.float32)
         dummy_model_shape = [(2, 2, 3, 1), (1,)]
-        # we except keras failure(ValueError) because we cannot reshape model weights of size 2 into shape (2,2,3,1)
+        # we expect keras failure(ValueError) because we cannot reshape
+        # model weights of size 2 into shape (2,2,3,1)
         with self.assertRaises(ValueError):
             self.subject.KerasWeightsSerializer.deserialize_weights(invalid_model_state.tostring(), dummy_model_shape)
 
@@ -171,7 +173,7 @@ class MadlibKerasHelperTestCase(unittest.TestCase):
     def test_get_data_as_np_array_invalid_input_shape(self):
         self.plpy_mock_execute.return_value = [{'x': [[1,2]], 'y': 0},
                                                {'x': [[5,6]], 'y': 1}]
-        # we except keras failure(ValueError) because we cannot reshape
+        # we expect keras failure(ValueError) because we cannot reshape
         # the input which is of size 2 to input shape of 1,1,3
         with self.assertRaises(ValueError):
             self.subject.get_data_as_np_array('foo','y','x', [1,1,3], 3)
