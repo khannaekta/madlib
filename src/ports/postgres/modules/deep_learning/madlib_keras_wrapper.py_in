@@ -81,7 +81,7 @@ def convert_string_of_args_to_dict(str_of_args):
     }
     valid_optimizers = ['sgd', 'rmsprop', 'adagrad', 'adadelta', 'adam',
                         'adamax', 'nadam']
-    optimizer_name,optimizer_params = extract_keyvalue_params(
+    (optimizer_name, optimizer_params) = extract_keyvalue_params(
         str_of_args, param_types, param_defaults, ignore_invalid=False)
 
     _assert(optimizer_name.lower() in valid_optimizers,
