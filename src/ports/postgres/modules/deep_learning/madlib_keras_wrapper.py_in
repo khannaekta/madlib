@@ -71,20 +71,24 @@ def convert_string_of_args_to_dict(str_of_args):
     """Uses parenthases matching algorithm to intelligently convert
     a string with valid python code into an argument dictionary"""
 
+    plpy.info(str_of_args)
     param_defaults = {
-        "optimizer_name": 'sgd'),
-        "optimizer_params": '')
+        'optimizer_name': 'sgd',
+        'optimizer_params': ''
     }
     param_types = {
-        "optimizer_name": str),
-        "optimizer_params": str)
+        'optimizer_name': str,
+        'optimizer_params': str
     }
+
     valid_optimizers = ['sgd', 'rmsprop', 'adagrad', 'adadelta', 'adam',
                         'adamax', 'nadam']
-    (optimizer_name, optimizer_params) = extract_keyvalue_params(
+    optimizer_name, optimizer_params = extract_keyvalue_params(
         str_of_args, param_types, param_defaults, ignore_invalid=False)
 
     _assert(optimizer_name.lower() in valid_optimizers,
         "DL error: Optimizer name not recognized: " + optimizer_name)
 
-    return eval('{' + optimizer_name + "(" + optimizer_params + ')}')
+    eval_cmd = optimizer_name + '(' + optimizer_params + ')'
+    plpy.info(eval_cmd)
+    return eval(eval_cmd)
