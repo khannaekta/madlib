@@ -105,6 +105,7 @@ def wcc(schema_madlib, vertex_table, vertex_id, edge_table, edge_args,
 
     message = unique_string(desp='message')
     oldupdate = unique_string(desp='oldupdate')
+    # oldupdate = message
     newupdate = unique_string(desp='newupdate')
     toupdate = unique_string(desp='toupdate')
     temp_out_table = unique_string(desp='tempout')
@@ -122,6 +123,19 @@ def wcc(schema_madlib, vertex_table, vertex_id, edge_table, edge_args,
     component_id = 'component_id'
     grouping_cols_comma = '' if not grouping_cols else grouping_cols + ','
     comma_grouping_cols = '' if not grouping_cols else ',' + grouping_cols
+
+    prev_perc = 1
+    perc = 0.75
+
+    vert_count = plpy.execute(
+        "select count(*) as count from {vertex_table}".format(**locals())
+        )[0]['count']
+
+    plpy.execute("DROP TABLE IF EXISTS edge2")
+    plpy.execute("""
+        CREATE TEMP TABLE edge2 AS 
+            SELECT * FROM {edge_table} DISTRIBUTED BY ({dest})
+        """.format(**locals()))
 
     if grouping_cols:
         distribution = ('' if is_platform_pg() else
@@ -184,99 +198,152 @@ def wcc(schema_madlib, vertex_table, vertex_id, edge_table, edge_args,
                 CREATE TABLE {newupdate} AS
                 SELECT {vertex_id}, CAST({INT_MAX} AS INT) AS {component_id}
                 FROM {vertex_table}
+                WHERE {vertex_id} > ({vert_count}*{perc})
                 {distribution}
             """.format(**locals()))
         plpy.execute("""
                 CREATE TEMP TABLE {message} AS
                 SELECT {vertex_id}, CAST({vertex_id} AS INT) AS {component_id}
                 FROM {vertex_table}
+                WHERE {vertex_id} > ({vert_count}*{perc})
                 {distribution}
             """.format(**locals()))
-    nodes_to_update = 1
-    while nodes_to_update > 0:
-        # Look at all the neighbors of a node, and assign the smallest node id
-        # among the neighbors as its component_id. The next table starts off
-        # with very high component_id (INT_MAX). The component_id of all nodes
-        # which obtain a smaller component_id after looking at its neighbors are
-        # updated in the next table. At every iteration update only those nodes
-        # whose component_id in the previous iteration are greater than what was
-        # found in the current iteration.
+    while perc >= 0:
+        nodes_to_update = 1
+        if prev_perc != 1:
+            plpy.execute("""
+                insert into {newupdate} 
+                   SELECT {vertex_id}, CAST({INT_MAX} AS INT) AS {component_id}
+                    FROM {vertex_table}
+                    WHERE {vertex_id} <= ({vert_count}*{prev_perc}) and 
+                          {vertex_id} > ({vert_count}*{perc})               
+                """.format(**locals()))
+            plpy.execute("""
+                insert into {message} 
+                    SELECT {vertex_id}, CAST({vertex_id} AS INT) AS {component_id}
+                    FROM {vertex_table}
+                    WHERE {vertex_id} <= ({vert_count}*{prev_perc}) and 
+                          {vertex_id} > ({vert_count}*{perc})
+                """.format(**locals()))
+        prev_perc = perc
+        perc = perc - 0.25
+        counter = 0
 
-        plpy.execute("DROP TABLE IF EXISTS {0}".format(oldupdate))
-        plpy.execute("""
-            CREATE TEMP TABLE {oldupdate} AS
-            SELECT {message}.{vertex_id},
-                    MIN({message}.{component_id}) AS {component_id}
-                    {grouping_cols_select}
-            FROM {message}
-            GROUP BY {group_by_clause} {vertex_id}
-            {distribution}
-        """.format(grouping_cols_select='' if not grouping_cols else
-                   ', {0}'.format(grouping_cols),
-                   group_by_clause=grouping_cols_comma,
-                   **locals()))
+        while nodes_to_update > 0:
+            # Look at all the neighbors of a node, and assign the smallest node id
+            # among the neighbors as its component_id. The next table starts off
+            # with very high component_id (INT_MAX). The component_id of all nodes
+            # which obtain a smaller component_id after looking at its neighbors are
+            # updated in the next table. At every iteration update only those nodes
+            # whose component_id in the previous iteration are greater than what was
+            # found in the current iteration.
 
-        plpy.execute("DROP TABLE IF EXISTS {0}".format(toupdate))
-        plpy.execute("""
-            CREATE TEMP TABLE {toupdate} AS
-            SELECT {oldupdate}.{vertex_id},
-                    {oldupdate}.{component_id}
-                    {comma_oldupdate_prefixed_grouping_cols}
-            FROM {oldupdate}, {newupdate}
-            WHERE {oldupdate}.{vertex_id}={newupdate}.{vertex_id}
-                AND {oldupdate}.{component_id}<{newupdate}.{component_id}
-                {old_new_update_where_condition}
-            {distribution}
-        """.format(**locals()))
-
-        plpy.execute("""
-                UPDATE {newupdate} SET
-                {component_id}={toupdate}.{component_id}
-                FROM {toupdate}
-                WHERE {newupdate}.{vertex_id}={toupdate}.{vertex_id}
-                    {new_to_update_where_condition}
+            plpy.execute("DROP TABLE IF EXISTS {0}".format(oldupdate))
+            plpy.execute("""
+                CREATE TEMP TABLE {oldupdate} AS
+                SELECT {message}.{vertex_id},
+                        MIN({message}.{component_id}) AS {component_id}
+                        {grouping_cols_select}
+                FROM {message}
+                GROUP BY {group_by_clause} {vertex_id}
+                {distribution}
+            """.format(grouping_cols_select='' if not grouping_cols else
+                       ', {0}'.format(grouping_cols),
+                       group_by_clause=grouping_cols_comma,
+                       **locals()))
+            plpy.info("counter {0}".format(counter))
+            counter += 1
+            plpy.execute("DROP TABLE IF EXISTS {0}".format(toupdate))
+            plpy.execute("""
+                CREATE TEMP TABLE {toupdate} AS
+                SELECT {oldupdate}.{vertex_id},
+                        {oldupdate}.{component_id}
+                        {comma_oldupdate_prefixed_grouping_cols}
+                FROM {oldupdate}, {newupdate}
+                WHERE {oldupdate}.{vertex_id}={newupdate}.{vertex_id}
+                    AND {oldupdate}.{component_id}<{newupdate}.{component_id}
+                    {old_new_update_where_condition}
+                {distribution}
             """.format(**locals()))
 
-        plpy.execute("DROP TABLE IF EXISTS {0}".format(message))
-        plpy.execute("""
-            CREATE TEMP TABLE {message} AS
-            SELECT {vertex_id}, MIN({component_id}) AS {component_id}
-                    {select_grouping_cols}
-            FROM (
-                SELECT {edge_table}.{src} AS {vertex_id},
-                    {toupdate}.{component_id}
-                    {comma_toupdate_prefixed_grouping_cols}
-                FROM {toupdate}, {edge_table}
-                WHERE {edge_table}.{dest} = {toupdate}.{vertex_id}
-                    {edge_to_update_where_condition}
-                UNION ALL
-                SELECT {edge_table}.{dest} AS {vertex_id},
-                    {toupdate}.{component_id}
-                    {comma_toupdate_prefixed_grouping_cols}
-                FROM {toupdate}, {edge_table}
-                WHERE {edge_table}.{src} = {toupdate}.{vertex_id}
-                    {edge_to_update_where_condition}
-            ) AS t
-            GROUP BY {group_by_clause} {vertex_id}
-        """.format(select_grouping_cols='' if not grouping_cols
-                   else ', {0}'.format(grouping_cols), group_by_clause=''
-                   if not grouping_cols else ' {0}, '.format(grouping_cols),
-                   **locals()))
+            res = plpy.execute("""
+                select count(*) as count, count(distinct {vertex_id}) as dist_count from {toupdate}
+                """.format(**locals()))
+            plpy.info("counts: count: {0}, dist count: {1}".format(res[0]['count'], res[0]['dist_count']))
 
-        plpy.execute("DROP TABLE {0}".format(oldupdate))
-        if grouping_cols:
-            nodes_to_update = plpy.execute("""
-                                SELECT SUM(cnt) AS cnt_sum
-                                FROM (
-                                    SELECT COUNT(*) AS cnt
-                                    FROM {toupdate}
-                                    GROUP BY {grouping_cols}
-                                ) t
-                """.format(**locals()))[0]["cnt_sum"]
-        else:
-            nodes_to_update = plpy.execute("""
-                                SELECT COUNT(*) AS cnt FROM {toupdate}
-                            """.format(**locals()))[0]["cnt"]
+            plpy.execute("""
+                    UPDATE {newupdate} SET
+                    {component_id}={toupdate}.{component_id}
+                    FROM {toupdate}
+                    WHERE {newupdate}.{vertex_id}={toupdate}.{vertex_id}
+                        {new_to_update_where_condition}
+                """.format(**locals()))
+
+            plpy.execute("DROP TABLE IF EXISTS {0}".format(message))
+
+            plpy.execute("""
+                CREATE TEMP TABLE {message} AS
+                    SELECT {edge_table}.{src} AS {vertex_id},
+                        MIN({toupdate}.{component_id}) AS {component_id}
+                        {comma_toupdate_prefixed_grouping_cols}
+                    FROM {toupdate}, {edge_table}
+                    WHERE {edge_table}.{dest} = {toupdate}.{vertex_id}
+                        {edge_to_update_where_condition}
+                    GROUP BY {group_by_clause} {edge_table}.{src}
+            """.format(group_by_clause=''
+                if not grouping_cols else ' {0}, '.format(grouping_cols),**locals()))
+
+            plpy.execute("""
+                INSERT INTO {message}
+                    SELECT {edge_table}.{dest} AS {vertex_id},
+                        MIN({toupdate}.{component_id}) as {component_id}
+                        {comma_toupdate_prefixed_grouping_cols}
+                    FROM {toupdate}, edge2 as {edge_table}
+                    WHERE {edge_table}.{src} = {toupdate}.{vertex_id}
+                        {edge_to_update_where_condition}
+                    GROUP BY {group_by_clause} {edge_table}.{dest}
+            """.format(group_by_clause=''
+                if not grouping_cols else ' {0}, '.format(grouping_cols),**locals()))
+            # plpy.execute("""
+            #     CREATE TEMP TABLE {message} AS
+            #     SELECT {vertex_id}, MIN({component_id}) AS {component_id}
+            #             {select_grouping_cols}
+            #     FROM (
+            #         SELECT {edge_table}.{src} AS {vertex_id},
+            #             {toupdate}.{component_id}
+            #             {comma_toupdate_prefixed_grouping_cols}
+            #         FROM {toupdate}, {edge_table}
+            #         WHERE {edge_table}.{dest} = {toupdate}.{vertex_id}
+            #             {edge_to_update_where_condition}
+            #         UNION ALL
+            #         SELECT {edge_table}.{dest} AS {vertex_id},
+            #             {toupdate}.{component_id}
+            #             {comma_toupdate_prefixed_grouping_cols}
+            #         FROM {toupdate}, {edge_table}
+            #         WHERE {edge_table}.{src} = {toupdate}.{vertex_id}
+            #             {edge_to_update_where_condition}
+            #     ) AS t
+            #     GROUP BY {group_by_clause} {vertex_id}
+            # """.format(select_grouping_cols='' if not grouping_cols
+            #            else ', {0}'.format(grouping_cols), group_by_clause=''
+            #            if not grouping_cols else ' {0}, '.format(grouping_cols),
+            #            **locals()))
+
+            # plpy.execute("DROP TABLE {0}".format(oldupdate))
+            if grouping_cols:
+                nodes_to_update = plpy.execute("""
+                                    SELECT SUM(cnt) AS cnt_sum
+                                    FROM (
+                                        SELECT COUNT(*) AS cnt
+                                        FROM {toupdate}
+                                        GROUP BY {grouping_cols}
+                                    ) t
+                    """.format(**locals()))[0]["cnt_sum"]
+            else:
+                nodes_to_update = plpy.execute("""
+                                    SELECT COUNT(*) AS cnt FROM {toupdate}
+                                """.format(**locals()))[0]["cnt"]
+
 
     plpy.execute("ALTER TABLE {0} RENAME TO {1}".format(newupdate, out_table))
     # Create summary table. We only need the vertex_id and grouping columns
