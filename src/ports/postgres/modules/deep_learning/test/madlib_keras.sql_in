@@ -35,7 +35,8 @@ copy cifar_10_sample_val from stdin delimiter '|';
 -- TODO Calling this function makes keras.fit fail with the exception (investigate later)
 -- NOTICE:  Releasing segworker groups to finish aborting the transaction.
 -- ERROR:  could not connect to segment: initialization of segworker group failed (cdbgang.c:237)
--- update cifar_10_sample_val SET independent_var = array_scalar_mult(independent_var::real[], (1/255.0)::real);
+update cifar_10_sample_val SET independent_var = array_scalar_mult(independent_var::real[], (1/1.0)::real);
+select dummy();
 
 -- Prepare the minibatched data manually instead of calling
 -- training_preprocessor_dl since it internally calls array_scalar_mult.

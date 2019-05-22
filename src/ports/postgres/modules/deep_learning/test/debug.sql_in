@@ -1,0 +1,11 @@
+drop table if exists small_unbatched;
+create table small_unbatched (x real[],y int);
+insert into small_unbatched (x,y) values(ARRAY[1,2,3],4);
+insert into small_unbatched (x,y) values(ARRAY[4,1,9],5);
+insert into small_unbatched (x,y) values(ARRAY[8,3,1],1);
+insert into small_unbatched (x,y) values(ARRAY[2,2,0],2);
+insert into small_unbatched (x,y) values(ARRAY[1,7,6],9);
+
+drop table if exists small_batched;
+create table small_batched as select madlib.array_scalar_mult(x,5::real) as x from small_unbatched;
+select madlib.dummy();
