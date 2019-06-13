@@ -17,7 +17,7 @@
 # under the License.
 # ------------------------------------------------------------------------------
 
-# Changelist for MADlib version rel/v1.15.1 to master
+# Changelist for MADlib version rel/v1.15.1 to rel/v1.16
 
 # This file contains all changes that were introduced in a new version of
 # MADlib. This changelist is used by the upgrade script to detect what objects
