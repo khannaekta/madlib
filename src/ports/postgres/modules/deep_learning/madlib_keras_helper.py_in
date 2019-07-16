@@ -40,7 +40,7 @@ METRIC_TYPE_COLNAME = "metrics_type"
 # MADLIB-1300 Adding these variables for DL only at this time.
 MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL = "dependent_var"
 MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL = "independent_var"
-
+DISTRIBUTION_KEY_COLNAME = "__dist_key__"
 ## sql variable types
 FLOAT32_SQL_TYPE = 'REAL'
 SMALLINT_SQL_TYPE = 'SMALLINT'
