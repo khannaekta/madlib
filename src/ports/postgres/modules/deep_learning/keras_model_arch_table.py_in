@@ -82,7 +82,7 @@ def load_keras_model(keras_model_arch_table, model_arch, model_weights,
                                                       missing_cols))
 
     unique_str = unique_string(prefix_has_temp=False)
-    insert_query = plpy.prepare("INSERT INTO {model_arch_table} "
+    insert_query = plpy.prepare("INSERT INTO {model_arch_table}  "
                                 "VALUES(DEFAULT, $1, $2, $3, $4, $5);".format(**locals()),
                                 ModelArchSchema.col_types[1:])
     insert_res = plpy.execute(insert_query,[model_arch, model_weights, name, description,
