@@ -178,13 +178,19 @@ class InputDataPreprocessorDL(object):
             distributed_by_clause= ' DISTRIBUTED BY (buffer_id) '
         sql = """
             CREATE TABLE {self.output_table} AS
-            SELECT * FROM
+            SELECT {self.schema_madlib}.convert_to_bytea({x}) AS {x},  
+                   {self.schema_madlib}.convert_to_bytea({y}) AS {y}, 
+                   array_dims({x}) AS {x}_shape,
+                   array_dims({y}) AS {y}_shape,
+                   buffer_id     
+            FROM
             (
-                SELECT {self.schema_madlib}.agg_array_concat(
-                            ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                       {self.schema_madlib}.agg_array_concat(
-                            ARRAY[{norm_tbl}.y]) AS {y},
-                       ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id
+                SELECT 
+                    {self.schema_madlib}.agg_array_concat(
+                        ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
+                    {self.schema_madlib}.agg_array_concat(
+                        ARRAY[{norm_tbl}.y]) AS {y},
+                    ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id
                 FROM {norm_tbl}
                 GROUP BY buffer_id
             ) b

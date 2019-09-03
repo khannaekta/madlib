@@ -835,3 +835,21 @@ CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(anyarray) (
    STYPE = anyarray,
    PREFUNC = array_cat
    );
+
+CREATE FUNCTION MADLIB_SCHEMA.convert_to_bytea(var REAL[])
+RETURNS BYTEA
+AS
+$$
+import numpy as np
+
+return np.array(var).tostring()
+$$ LANGUAGE plpythonu;
+
+CREATE FUNCTION MADLIB_SCHEMA.convert_to_bytea(var SMALLINT[])
+RETURNS BYTEA
+AS
+$$
+import numpy as np
+
+return np.array(var).tostring()
+$$ LANGUAGE plpythonu;
