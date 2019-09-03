@@ -842,7 +842,7 @@ AS
 $$
 import numpy as np
 
-return np.array(var).tostring()
+return np.array(var, dtype=np.float32).tobytes()
 $$ LANGUAGE plpythonu;
 
 CREATE FUNCTION MADLIB_SCHEMA.convert_to_bytea(var SMALLINT[])
@@ -851,5 +851,25 @@ AS
 $$
 import numpy as np
 
-return np.array(var).tostring()
+return np.array(var, dtype=np.int16).tobytes()
 $$ LANGUAGE plpythonu;
+
+
+CREATE FUNCTION MADLIB_SCHEMA.convert_to_real_array(var BYTEA)
+RETURNS REAL[]
+AS
+$$
+import numpy as np
+
+return np.frombuffer(var, dtype=np.float32)
+$$ LANGUAGE plpythonu;
+
+CREATE FUNCTION MADLIB_SCHEMA.convert_to_smallint_array(var BYTEA)
+RETURNS SMALLINT[]
+AS
+$$
+import numpy as np
+
+return np.frombuffer(var, dtype=np.int16)
+$$ LANGUAGE plpythonu;
+
