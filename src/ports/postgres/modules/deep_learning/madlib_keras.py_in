@@ -107,6 +107,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         SELECT {schema_madlib}.fit_step(
             {mb_dep_var_col},
             {mb_indep_var_col},
+            {mb_dep_var_col}_shape,
+            {mb_indep_var_col}_shape,
             $MAD${model_arch}$MAD$::TEXT,
             {compile_params_to_pass}::TEXT,
             {fit_params_to_pass}::TEXT,
@@ -385,7 +387,8 @@ def should_compute_metrics_this_iter(curr_iter, metrics_compute_frequency,
     return (curr_iter)%metrics_compute_frequency == 0 or \
            curr_iter == num_iterations
 
-def fit_transition(state, dependent_var, independent_var, model_architecture,
+def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
+                   independent_var_shape, model_architecture,
                    compile_params, fit_params, current_seg_id, seg_ids,
                    images_per_seg, gpus_per_host, segments_per_host,
                    prev_serialized_weights, **kwargs):
@@ -410,8 +413,8 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
         agg_image_count = madlib_keras_serializer.get_image_count_from_state(state)
 
     # Prepare the data
-    x_train = np_array_float32(independent_var)
-    y_train = np_array_int16(dependent_var)
+    x_train = np_array_float32(independent_var, independent_var_shape)
+    y_train = np_array_int16(dependent_var, dependent_var_shape)
 
     # Fit segment model on data
     start_fit = time.time()

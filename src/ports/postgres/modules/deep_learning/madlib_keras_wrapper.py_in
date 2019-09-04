@@ -327,3 +327,10 @@ def validate_compile_param_types(compile_dict):
             compile_dict['sample_weight_mode'] == "temporal",
             """compile parameter sample_weight_mode can only be "temporal" or None""")
 
+def parse_shape(shape):
+    plpy.info("Input Shape: {}".format(shape))
+    a = shape.split(':')
+    b = [a.split(']')[0] for a in a[1:]]
+    c = [int(b) for b in b]
+    plpy.info(c)
+    return c
