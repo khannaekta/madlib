@@ -123,7 +123,7 @@ class ValidateArgsTestCase(unittest.TestCase):
         self.assertEqual('bcd', self.subject.get_algorithm_name(
             'bc', 'aaa', ['aaa','abc','bcd'], 'qwerty'))
 
-        # If two options satisfy the given selectyion,
+        # If two options satisfy the given selection,
         # pick the first one from the list
         self.assertEqual('aaa', self.subject.get_algorithm_name(
             'a', 'abc', ['aaa','abc','bcd'], 'qwerty'))
