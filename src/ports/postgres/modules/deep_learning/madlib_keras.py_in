@@ -575,8 +575,8 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
     """
     evaluate_query = plpy.prepare("""
         select ({schema_madlib}.internal_keras_evaluate(
-                                            {mb_dep_var_col},
-                                            {mb_indep_var_col},
+                                            {schema_madlib}.convert_bytea_to_real_array({mb_dep_var_col}),
+                                            {schema_madlib}.convert_bytea_to_smallint_array({mb_indep_var_col}),
                                             $MAD${model_arch}$MAD$,
                                             $1,
                                             {compile_params},

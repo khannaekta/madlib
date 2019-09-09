@@ -316,8 +316,7 @@ class FitInputValidator:
             self._validate_input_table(self.validation_table)
             dependent_vartype = get_expr_type(self.dependent_varname,
                                               self.validation_table)
-            _assert(is_valid_psql_type(dependent_vartype,
-                                       NUMERIC | ONLY_ARRAY),
+            _assert(dependent_vartype == 'bytea',
                     "Dependent variable column {0} in validation table {1} should be "
                     "a numeric array and also one hot encoded.".format(
                         self.dependent_varname, self.validation_table))
