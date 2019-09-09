@@ -26,6 +26,7 @@
 
 import numpy as np
 import plpy
+from utilities.control import MinWarning
 from utilities.utilities import _assert
 from utilities.utilities import unique_string
 from utilities.validate_args import output_tbl_valid
@@ -71,114 +72,115 @@ def kmeans_auto(schema_madlib, rel_source, output_table, expr_point, k,
     min_frac_reassigned=None, k_selection_algorithm=None, seeding=None,
     seeding_sample_ratio=None, **kwargs):
 
-    _validate(output_table, k)
+    with MinWarning("error"):
+        _validate(output_table, k)
 
-    (fn_dist, agg_centroid, max_num_iterations, min_frac_reassigned,
-     k_selection_algorithm, seeding_sample_ratio) = set_defaults(
-        schema_madlib, fn_dist, agg_centroid, max_num_iterations,
-        min_frac_reassigned, k_selection_algorithm, seeding,
-        seeding_sample_ratio)
+        (fn_dist, agg_centroid, max_num_iterations, min_frac_reassigned,
+         k_selection_algorithm, seeding_sample_ratio) = set_defaults(
+            schema_madlib, fn_dist, agg_centroid, max_num_iterations,
+            min_frac_reassigned, k_selection_algorithm, seeding,
+            seeding_sample_ratio)
 
-    silhouette_col = ""
-    elbow_col = ""
+        silhouette_col = ""
+        elbow_col = ""
 
-    # If the selection is elbow or both, calculate elbow
-    use_silhouette = k_selection_algorithm in [SILHOUETTE, BOTH]
-    # If the selection is silhouette or both, calculate silhouette
-    use_elbow = k_selection_algorithm in [ELBOW, BOTH]
-
-    if use_silhouette:
-        silhouette_col = ", {0} DOUBLE PRECISION".format(SILHOUETTE)
-    if use_elbow:
-        elbow_col = ", {0} DOUBLE PRECISION".format(ELBOW)
-
-    plpy.execute("""
-        CREATE TABLE {output_table} (
-            k INTEGER,
-            centroids   DOUBLE PRECISION[][],
-            cluster_variance    DOUBLE PRECISION[],
-            objective_fn    DOUBLE PRECISION,
-            frac_reassigned DOUBLE PRECISION,
-            num_iterations  INTEGER
-            {silhouette_col}
-            {elbow_col})
-        """.format(**locals()))
-
-    silhouette_vals = []
-
-    for current_k in k:
-        if seeding is 'random':
-            plpy.execute("""
-                INSERT INTO {output_table}
-                (k, centroids, cluster_variance, objective_fn, frac_reassigned,
-                num_iterations)
-                SELECT {current_k} as k, *
-                FROM {schema_madlib}.kmeans_random('{rel_source}',
-                                     '{expr_point}',
-                                     {current_k},
-                                     '{fn_dist}',
-                                     '{agg_centroid}',
-                                     {max_num_iterations},
-                                     {min_frac_reassigned});
-                """.format(**locals()))
-        else:
-            plpy.execute("""
-                INSERT INTO {output_table}
-                (k, centroids, cluster_variance, objective_fn, frac_reassigned,
-                num_iterations)
-                SELECT {current_k} as k, *
-                FROM {schema_madlib}.kmeanspp('{rel_source}',
-                                     '{expr_point}',
-                                     {current_k},
-                                     '{fn_dist}',
-                                     '{agg_centroid}',
-                                     {max_num_iterations},
-                                     {min_frac_reassigned},
-                                     {seeding_sample_ratio});
-                """.format(**locals()))
+        # If the selection is elbow or both, calculate elbow
+        use_silhouette = k_selection_algorithm in [SILHOUETTE, BOTH]
+        # If the selection is silhouette or both, calculate silhouette
+        use_elbow = k_selection_algorithm in [ELBOW, BOTH]
 
         if use_silhouette:
-            silhouette_query= """
-                SELECT * FROM {schema_madlib}.simple_silhouette(
-                    '{rel_source}',
-                    '{expr_point}',
-                    (SELECT centroids
-                     FROM {output_table}
-                     WHERE k = {current_k}),
-                    '{fn_dist}')
-                """.format(**locals())
-            silhouette_vals.append(
-                plpy.execute(silhouette_query)[0]['simple_silhouette'])
+            silhouette_col = ", {0} DOUBLE PRECISION".format(SILHOUETTE)
+        if use_elbow:
+            elbow_col = ", {0} DOUBLE PRECISION".format(ELBOW)
 
-    update_query = """
-        UPDATE {output_table} SET {{column}} = __value__ FROM
-        (SELECT unnest(ARRAY[{k_arr}]) AS __k__,
-                unnest(ARRAY[{{calc_arr}}]) AS __value__
-        )sub_q
-        WHERE __k__ = k
-        """.format(output_table = output_table,
-                   k_arr = str(k)[1:-1])
-    if use_silhouette:
-        optimal_sil =  k[np.argmax(np.array(silhouette_vals))]
-        plpy.execute(update_query.format(column = SILHOUETTE,
-            calc_arr = str(silhouette_vals)[1:-1]))
+        plpy.execute("""
+            CREATE TABLE {output_table} (
+                k INTEGER,
+                centroids   DOUBLE PRECISION[][],
+                cluster_variance    DOUBLE PRECISION[],
+                objective_fn    DOUBLE PRECISION,
+                frac_reassigned DOUBLE PRECISION,
+                num_iterations  INTEGER
+                {silhouette_col}
+                {elbow_col})
+            """.format(**locals()))
 
-    if use_elbow:
+        silhouette_vals = []
 
-        optimal_elbow, second_order = _calculate_elbow(output_table)
-        plpy.execute(update_query.format(column = ELBOW,
-            calc_arr = str(second_order.tolist())[1:-1]))
+        for current_k in k:
+            if seeding is 'random':
+                plpy.execute("""
+                    INSERT INTO {output_table}
+                    (k, centroids, cluster_variance, objective_fn, frac_reassigned,
+                    num_iterations)
+                    SELECT {current_k} as k, *
+                    FROM {schema_madlib}.kmeans_random('{rel_source}',
+                                         '{expr_point}',
+                                         {current_k},
+                                         '{fn_dist}',
+                                         '{agg_centroid}',
+                                         {max_num_iterations},
+                                         {min_frac_reassigned});
+                    """.format(**locals()))
+            else:
+                plpy.execute("""
+                    INSERT INTO {output_table}
+                    (k, centroids, cluster_variance, objective_fn, frac_reassigned,
+                    num_iterations)
+                    SELECT {current_k} as k, *
+                    FROM {schema_madlib}.kmeanspp('{rel_source}',
+                                         '{expr_point}',
+                                         {current_k},
+                                         '{fn_dist}',
+                                         '{agg_centroid}',
+                                         {max_num_iterations},
+                                         {min_frac_reassigned},
+                                         {seeding_sample_ratio});
+                    """.format(**locals()))
 
-    optimal_k = optimal_elbow if use_elbow else optimal_sil
+            if use_silhouette:
+                silhouette_query= """
+                    SELECT * FROM {schema_madlib}.simple_silhouette(
+                        '{rel_source}',
+                        '{expr_point}',
+                        (SELECT centroids
+                         FROM {output_table}
+                         WHERE k = {current_k}),
+                        '{fn_dist}')
+                    """.format(**locals())
+                silhouette_vals.append(
+                    plpy.execute(silhouette_query)[0]['simple_silhouette'])
 
-    plpy.execute("""
-        CREATE TABLE {output_table}_summary AS
-        SELECT {output_table}.*,
-               '{algorithm}'::VARCHAR AS selection_algorithm
-        FROM {output_table}
-        WHERE k = {optimal_k}
-        """.format(algorithm = ELBOW if use_elbow else SILHOUETTE,
-                   **locals()))
+        update_query = """
+            UPDATE {output_table} SET {{column}} = __value__ FROM
+            (SELECT unnest(ARRAY[{k_arr}]) AS __k__,
+                    unnest(ARRAY[{{calc_arr}}]) AS __value__
+            )sub_q
+            WHERE __k__ = k
+            """.format(output_table = output_table,
+                       k_arr = str(k)[1:-1])
+        if use_silhouette:
+            optimal_sil =  k[np.argmax(np.array(silhouette_vals))]
+            plpy.execute(update_query.format(column = SILHOUETTE,
+                calc_arr = str(silhouette_vals)[1:-1]))
+
+        if use_elbow:
+
+            optimal_elbow, second_order = _calculate_elbow(output_table)
+            plpy.execute(update_query.format(column = ELBOW,
+                calc_arr = str(second_order.tolist())[1:-1]))
+
+        optimal_k = optimal_elbow if use_elbow else optimal_sil
+
+        plpy.execute("""
+            CREATE TABLE {output_table}_summary AS
+            SELECT {output_table}.*,
+                   '{algorithm}'::VARCHAR AS selection_algorithm
+            FROM {output_table}
+            WHERE k = {optimal_k}
+            """.format(algorithm = ELBOW if use_elbow else SILHOUETTE,
+                       **locals()))
 
     return
 
