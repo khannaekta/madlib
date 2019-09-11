@@ -518,10 +518,8 @@ class InternalKerasPredictTestCase(unittest.TestCase):
 
     def test_predict_first_image_pass_gpdb(self):
         self.subject.is_platform_pg = Mock(return_value = False)
-        model_weights = [1,2,3,4,5,6]
-        serialized_weights = [0, 0, 0] # not used
-        serialized_weights.extend(model_weights)
-        serialized_weights = np.array(serialized_weights, dtype=np.float32).tostring()
+        model_weights = [1, 2, 3, 4]
+        serialized_weights = np.array(model_weights, dtype=np.float32).tostring()
 
         k = {'SD': {}}
         is_response = True
@@ -1184,17 +1182,25 @@ class MadlibSerializerTestCase(unittest.TestCase):
         invalid_model_weights = np.array([1,2], dtype=np.float32)
         dummy_model_shape = [(2, 1, 1, 1), (1,)]
 
-        # we expect keras failure(ValueError) because we cannot reshape
+        # we expect raise exception because we cannot reshape
         # model weights of size 0 into shape (2,2,3,1)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(plpy.PLPYException) as error:
             self.subject.deserialize_as_nd_weights(invalid_model_weights.tostring(),
                                                    dummy_model_shape)
 
         invalid_model_weights = np.array([1,2,3,4], dtype=np.float32)
         dummy_model_shape = [(2, 2, 3, 1), (1,)]
-        # we expect keras failure(ValueError) because we cannot reshape
+        # we expect raise exception because we cannot reshape
         # model weights of size 2 into shape (2,2,3,1)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(plpy.PLPYException) as error:
+            self.subject.deserialize_as_nd_weights(invalid_model_weights.tostring(),
+                                                   dummy_model_shape)
+
+        invalid_model_weights = np.array([0,1,2,3,4], dtype=np.float32)
+        dummy_model_shape = [(2, 1), (1,)]
+        # we expect to raise exception because we cannot reshape
+        # model weights of size 2 into shape (1,)
+        with self.assertRaises(plpy.PLPYException) as error:
             self.subject.deserialize_as_nd_weights(invalid_model_weights.tostring(),
                                                    dummy_model_shape)
 
