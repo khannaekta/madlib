@@ -82,6 +82,7 @@ class FitMultipleModel():
         self.train_mst_metric_eval_time = defaultdict(list)
         self.train_mst_loss = defaultdict(list)
         self.train_mst_metric = defaultdict(list)
+        self.info_str = ""
         self.seg_ids_train, self.images_per_seg_train = \
             get_image_count_per_seg_for_minibatched_data_from_db(
                 self.source_table)
@@ -139,10 +140,18 @@ class FitMultipleModel():
                 mst_row = [self.grand_schedule[dist_key][i]
                            for dist_key in self.dist_keys]
                 self.create_mst_schedule_table(mst_row)
+                if i == 0:
+                    start_iteration = time.time()
                 self.run_training()
+                if i == (len(self.msts) - 1):
+                    end_iteration = time.time()
+                    self.info_str = "\tTime for training in iteration {0}: {1} sec\n".format(e,
+                                                                                      end_iteration - start_iteration)
+            self.info_str += "\tTraining set after iteration {0}:".format(e)
             self.evaluate_model(e, self.source_table, True)
             if self.validation_table:
                 self.evaluate_model(e, self.validation_table, False)
+            plpy.info("\n"+self.info_str)
 
     def evaluate_model(self, epoch, table, is_train):
         res = self.query_weights()
@@ -176,6 +185,7 @@ class FitMultipleModel():
                 .append(metric_eval_time)
             mst_loss[mst[self.mst_key_col]].append(loss)
             mst_metric[mst[self.mst_key_col]].append(metric)
+            self.info_str += "\n\tmst_key={0}: metric={1}, loss={2}".format(mst[self.mst_key_col], metric, loss)
 
     def generate_schedule(self, msts):
         grand_schedule = {}
@@ -276,8 +286,6 @@ class FitMultipleModel():
                                                      self.gpus_per_host
                                                      )
             model_size = sys.getsizeof(serialized_weights) / 1024.0
-            model = model_from_json(model_arch)
-
             metrics_list = get_metrics_from_compile_param(
                 mst[self.compile_params_col])
             is_metrics_specified = True if metrics_list else False
