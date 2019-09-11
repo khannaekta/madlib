@@ -136,7 +136,7 @@ class FitMultipleModel():
 
     def train_multiple_model(self):
         for e in range(self.num_iterations):
-            for i in range(len(self.msts)):
+            for i in range(len(self.msts_for_schedule)):
                 mst_row = [self.grand_schedule[dist_key][i]
                            for dist_key in self.dist_keys]
                 self.create_mst_schedule_table(mst_row)
