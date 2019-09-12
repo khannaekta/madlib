@@ -170,7 +170,11 @@ class FitMultipleModel():
             images_per_seg = self.images_per_seg_valid
         for mst in self.msts:
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
-            serialized_weights = res_map[mst[self.mst_key_col]]
+            state = res_map[mst[self.mst_key_col]]
+            serialized_weights = \
+                madlib_keras_serializer.get_serialized_1d_weights_from_state(
+                    state)
+            # serialized_weights = res_map[mst[self.mst_key_col]]
             loss_metric = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
                     mst[self.compile_params_col]),
@@ -286,6 +290,12 @@ class FitMultipleModel():
                                                      self.gpus_per_host
                                                      )
             model_size = sys.getsizeof(serialized_weights) / 1024.0
+            model = model_from_json(
+                model_arch)
+
+            serialized_state = \
+                madlib_keras_serializer.serialize_state_with_nd_weights(
+                    0, model.get_weights())
             metrics_list = get_metrics_from_compile_param(
                 mst[self.compile_params_col])
             is_metrics_specified = True if metrics_list else False
@@ -302,7 +312,7 @@ class FitMultipleModel():
             output_table_insert_query_prepared = plpy.prepare(
                 output_table_insert_query, ["bytea", "json"])
             plpy.execute(output_table_insert_query_prepared, [
-                         serialized_weights, json.dumps(model_arch)])
+                serialized_state, json.dumps(model_arch)])
             info_table_insert_query = """
                     INSERT INTO {self.model_info_table}({self.mst_key_col},
                                 {self.model_id_col}, {self.compile_params_col},
@@ -409,7 +419,7 @@ class FitMultipleModel():
 
     def run_training(self):
         mst_weights_query = """
-            CREATE TEMP TABLE {self.mst_weights_tbl} AS
+             CREATE TEMP TABLE {self.mst_weights_tbl} AS
                 SELECT mst_tbl.*, wgh_tbl.{self.model_weights_col},
                        model_arch_tbl.{self.model_arch_col}
                 FROM
@@ -418,12 +428,18 @@ class FitMultipleModel():
                     ON mst_tbl.{self.mst_key_col} = wgh_tbl.{self.mst_key_col}
                         LEFT JOIN {self.model_arch_table} model_arch_tbl
                         ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
-                DISTRIBUTED BY ({dist_key_col})
+                DISTRIBUTED BY ({dist_key_col}, {self.mst_key_col})
         """.format(dist_key_col=dist_key_col,
                    **locals())
-        plpy.execute(mst_weights_query)
+        t = plpy.execute(mst_weights_query)
+        for r in t:
+            plpy.info(r)
         uda_query = """
-            SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
+            EXPLAIN 
+            -- CREATE TABLE weights_one_schedule AS
+            UPDATE {self.model_output_table} SET {self.model_weights_col} = weights_one_schedule.{self.model_weights_col}
+            from (
+            SELECT {dist_key_col},{self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                                                       {mb_indep_var_col},
                                                       {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
                                                       {self.mst_weights_tbl}.{self.compile_params_col}::TEXT,
@@ -438,29 +454,56 @@ class FitMultipleModel():
                                                       )::BYTEA AS {self.model_weights_col},
                 {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
                 FROM {self.source_table} src JOIN {self.mst_weights_tbl}
-                    USING ({dist_key_col})
-                WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
-                GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
+                    on {self.source_table}.{dist_key_col}={self.mst_weights_tbl}.{dist_key_col}
+                      and {self.source_table}.buffer_id = {self.mst_weights_tbl}.{self.mst_key_col}
+                GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}) weights_one_schedule
+                WHERE 
+                {self.source_table}.{dist_key_col}={self.mst_weights_tbl}.{dist_key_col}
+                and {self.model_output_table}.{self.mst_key_col} = weights_one_schedule.{self.mst_key_col};
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
                        is_final_iteration=True,
                        dist_key_col=dist_key_col,
                        self=self
                        )
+# -- WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
+#         -- DISTRIBUTED BY ({dist_key_col});
+
+
         uda_query_plan = plpy.prepare(uda_query)
         uda_res = plpy.execute(uda_query_plan)
-        res_map = {x[self.mst_key_col]: madlib_keras_serializer. \
-            get_serialized_1d_weights_from_state(x[self.model_weights_col]) for x in uda_res}
+        for r in uda_res:
+            plpy.info(r)
 
-        update_query = """
-            UPDATE {self.model_output_table}
-            SET {self.model_weights_col} = $1
-            WHERE {self.model_output_table}.{self.mst_key_col} = $2
-            """.format(self=self)
-        update_query_plan = plpy.prepare(update_query, ["BYTEA", "INTEGER"])
-        for mst_key, weights in res_map.items():
-            plpy.execute(update_query_plan, [weights, mst_key])
-        plpy.execute("DROP TABLE IF EXISTS {0}, {1}".format(
+        # uda_query = """
+        #     UPDATE {self.model_output_table} SET {self.model_weights_col} = weights_one_schedule.{self.model_weights_col}
+        #     FROM weights_one_schedule
+        #     WHERE {self.model_output_table}.{self.mst_key_col} = weights_one_schedule.{self.mst_key_col};
+        #     """.format(mb_dep_var_col=mb_dep_var_col,
+        #                mb_indep_var_col=mb_indep_var_col,
+        #                is_final_iteration=True,
+        #                dist_key_col=dist_key_col,
+        #                self=self
+        #                )
+        #
+        #
+        # uda_query_plan = plpy.prepare(uda_query)
+        # uda_res = plpy.execute(uda_query_plan)
+        #
+        # for r in uda_res:
+        #     plpy.info(r)
+        # res_map = {x[self.mst_key_col]: madlib_keras_serializer. \
+        #     get_serialized_1d_weights_from_state(x[self.model_weights_col]) for x in uda_res}
+        #
+        # update_query = """
+        #     UPDATE {self.model_output_table}
+        #     SET {self.model_weights_col} = $1
+        #     WHERE {self.model_output_table}.{self.mst_key_col} = $2
+        #     """.format(self=self)
+        # update_query_plan = plpy.prepare(update_query, ["BYTEA", "INTEGER"])
+        # for mst_key, weights in res_map.items():
+        #     plpy.execute(update_query_plan, [weights, mst_key])
+        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, weights_one_schedule".format(
                                                         self.mst_weights_tbl,
                                                         self.mst_current_schedule_tbl))
 
