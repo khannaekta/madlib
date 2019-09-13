@@ -154,8 +154,8 @@ class FitMultipleModel():
             plpy.info("\n"+self.info_str)
 
     def evaluate_model(self, epoch, table, is_train):
-        res = self.query_weights()
-        res_map = {x[self.mst_key_col]: x[self.model_weights_col] for x in res if x[self.model_weights_col]}
+        # res = self.query_weights()
+        # res_map = {x[self.mst_key_col]: x[self.model_weights_col] for x in res if x[self.model_weights_col]}
         if is_train:
             mst_metric_eval_time = self.train_mst_metric_eval_time
             mst_loss = self.train_mst_loss
@@ -169,9 +169,10 @@ class FitMultipleModel():
             seg_ids = self.seg_ids_valid
             images_per_seg = self.images_per_seg_valid
         for mst in self.msts:
+            state = self.query_weights(mst[self.mst_key_col])
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
             # serialized_weights = res_map[mst[self.mst_key_col]]
-            state = res_map[mst[self.mst_key_col]]
+            # state = res_map[mst[self.mst_key_col]]
             serialized_weights = \
                 madlib_keras_serializer.get_serialized_1d_weights_from_state(
                     state)
@@ -436,6 +437,8 @@ class FitMultipleModel():
         uda_query = """
             DROP TABLE IF EXISTS weights_to_update;
             CREATE TABLE weights_to_update AS
+            -- UPDATE {self.model_output_table} SET {self.model_weights_col} = weights_to_update.{self.model_weights_col}
+            -- FROM
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                                                       {mb_indep_var_col},
                                                       {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
@@ -449,13 +452,15 @@ class FitMultipleModel():
                                                       {self.mst_weights_tbl}.{self.model_weights_col}::BYTEA,
                                                       {is_final_iteration}::BOOLEAN
                                                       )::BYTEA AS {self.model_weights_col},
-                {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col},
-                src.{dist_key_col} AS {dist_key_col}
+                {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
+                ,src.{dist_key_col} AS {dist_key_col}
                 FROM {self.source_table} src JOIN {self.mst_weights_tbl}
                     USING ({dist_key_col})
                 WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
                 GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
             DISTRIBUTED BY({dist_key_col})
+            -- )weights_to_update
+            -- WHERE {self.model_output_table}.{self.mst_key_col} = weights_to_update.{self.mst_key_col}
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
                        is_final_iteration=True,
@@ -464,6 +469,8 @@ class FitMultipleModel():
                        )
         uda_query_plan = plpy.prepare(uda_query)
         uda_res = plpy.execute(uda_query_plan)
+        for r in uda_res:
+            plpy.info(r)
         # res_map = {x[self.mst_key_col]: madlib_keras_serializer. \
         #     get_serialized_1d_weights_from_state(x[self.model_weights_col]) for x in uda_res}
 
@@ -485,11 +492,13 @@ class FitMultipleModel():
                                                         self.mst_weights_tbl,
                                                         self.mst_current_schedule_tbl))
 
-    def query_weights(self):
+    def query_weights(self, mst_key):
         mlp_weights_query = """
                             SELECT {self.model_weights_col}, {self.mst_key_col}
                             FROM {self.model_output_table}
-                            """.format(self=self)
+                            WHERE {self.mst_key_col} = {mst_key}
+                            """.format(**locals())
 
         res = plpy.execute(mlp_weights_query)
-        return res
+        plpy.info("lengh of query weights res {}".format(len(res)))
+        return res[0][self.model_weights_col]
