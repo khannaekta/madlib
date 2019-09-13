@@ -138,7 +138,9 @@ class MadlibKerasFitTestCase(unittest.TestCase):
         starting_image_count = 0
         ending_image_count = len(self.dependent_var)
 
-        previous_state = np.array(self.model_weights, dtype=np.float32)
+        previous_state = [starting_image_count]
+        previous_state.extend(self.model_weights)
+        previous_state = np.array(previous_state, dtype=np.float32)
 
         k = {'SD': {}}
 

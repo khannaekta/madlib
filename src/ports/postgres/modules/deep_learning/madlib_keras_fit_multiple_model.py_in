@@ -105,8 +105,8 @@ class FitMultipleModel():
             self.seg_ids_valid, self.images_per_seg_valid = \
                 get_image_count_per_seg_for_minibatched_data_from_db(
                     self.validation_table)
-        self.mst_weights_tbl = unique_string('mst_weights')
-        self.mst_current_schedule_tbl = unique_string('mst_current_schedule')
+        self.mst_weights_tbl = unique_string(desp='mst_weights')
+        self.mst_current_schedule_tbl = unique_string(desp='mst_current_schedule')
 
         self.dist_keys = self.query_dist_keys()
         if len(self.msts) < len(self.dist_keys):
@@ -119,7 +119,7 @@ class FitMultipleModel():
         self.segments_per_host, self.gpus_per_host = get_segments_and_gpus(
             gpus_per_host)
         self.create_model_output_table()
-        self.weights_to_update_tbl = unique_string('weights_to_update')
+        self.weights_to_update_tbl = unique_string(desp='weights_to_update')
         self.fit_multiple_model()
 
     def fit_multiple_model(self):
