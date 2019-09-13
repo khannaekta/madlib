@@ -107,6 +107,7 @@ class FitMultipleModel():
                     self.validation_table)
         self.mst_weights_tbl = 'mst_weights' + unique_string()
         self.mst_current_schedule_tbl = 'mst_current_schedule' + unique_string()
+        self.weights_to_update_tbl = '__blah___sdasadaasd_ASfasf'
 
         self.dist_keys = self.query_dist_keys()
         if len(self.msts) < len(self.dist_keys):
@@ -434,11 +435,9 @@ class FitMultipleModel():
         """.format(dist_key_col=dist_key_col,
                    **locals())
         plpy.execute(mst_weights_query)
+        plpy.info("Weights table name: {}".format(self.weights_to_update_tbl))
         uda_query = """
-            DROP TABLE IF EXISTS weights_to_update;
-            CREATE TABLE weights_to_update AS
-            -- UPDATE {self.model_output_table} SET {self.model_weights_col} = weights_to_update.{self.model_weights_col}
-            -- FROM
+            CREATE TEMP TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                                                       {mb_indep_var_col},
                                                       {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
@@ -459,38 +458,25 @@ class FitMultipleModel():
                 WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
                 GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
             DISTRIBUTED BY({dist_key_col})
-            -- )weights_to_update
-            -- WHERE {self.model_output_table}.{self.mst_key_col} = weights_to_update.{self.mst_key_col}
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
                        is_final_iteration=True,
                        dist_key_col=dist_key_col,
                        self=self
                        )
-        uda_query_plan = plpy.prepare(uda_query)
-        uda_res = plpy.execute(uda_query_plan)
-        for r in uda_res:
-            plpy.info(r)
-        # res_map = {x[self.mst_key_col]: madlib_keras_serializer. \
-        #     get_serialized_1d_weights_from_state(x[self.model_weights_col]) for x in uda_res}
+        # uda_query_plan = plpy.prepare(uda_query)
+        plpy.execute(uda_query)
 
         update_query = """
-            UPDATE {self.model_output_table} SET {self.model_weights_col} = weights_to_update.{self.model_weights_col}
-            FROM weights_to_update
-            WHERE {self.model_output_table}.{self.mst_key_col} = weights_to_update.{self.mst_key_col}
+            UPDATE {self.model_output_table} SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
+            FROM {self.weights_to_update_tbl}
+            WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
         """.format(self=self)
         plpy.execute(update_query)
-        # update_query = """
-        #     UPDATE {self.model_output_table}
-        #     SET {self.model_weights_col} = $1
-        #     WHERE {self.model_output_table}.{self.mst_key_col} = $2
-        #     """.format(self=self)
-        # update_query_plan = plpy.prepare(update_query, ["BYTEA", "INTEGER"])
-        # for mst_key, weights in res_map.items():
-        #     plpy.execute(update_query_plan, [weights, mst_key])
-        plpy.execute("DROP TABLE IF EXISTS {0}, {1}".format(
+        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(
                                                         self.mst_weights_tbl,
-                                                        self.mst_current_schedule_tbl))
+                                                        self.mst_current_schedule_tbl,
+                                                        self.weights_to_update_tbl))
 
     def query_weights(self, mst_key):
         mlp_weights_query = """
