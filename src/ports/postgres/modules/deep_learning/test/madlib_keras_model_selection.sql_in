@@ -187,8 +187,8 @@ SELECT load_model_selection_table(
 );
 
 -- Test when number of configs(3) equals number of segments(3)
-SELECT setseed(0);
 DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
+SELECT setseed(0);
 SELECT madlib_keras_fit_multiple_model(
 	'iris_data_packed_dist',
 	'iris_multiple_model',
@@ -243,12 +243,6 @@ SELECT assert(cnt = 1,
 	'Keras Fit Multiple Output Info compile params validation failed. Actual:' || __to_char(info))
 FROM (SELECT count(*) cnt FROM iris_multiple_model_info
 WHERE compile_params = $MAD$loss='categorical_crossentropy', optimizer='Adam(lr=0.0001)', metrics=['accuracy']$MAD$::text) info;
-
-SELECT
-  training_loss[6], training_loss[1],
-  training_metrics[6],training_metrics[1]
-FROM iris_multiple_model_info
-WHERE compile_params like '%lr=0.01%';
 
 SELECT assert(
   training_loss[6]-training_loss[1] < 0 AND
