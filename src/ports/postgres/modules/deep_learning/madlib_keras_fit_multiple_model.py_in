@@ -92,6 +92,8 @@ class FitMultipleModel():
                                          "has been created by "
                                          "load_model_selection_table().".format(self.model_selection_table))
         self.msts, self.model_arch_table = self.query_model_configs()
+        self.dep_shape_col = add_postfix(mb_dep_var_col, "_shape")
+        self.ind_shape_col = add_postfix(mb_indep_var_col, "_shape")
         self.fit_validator_train = FitMultipleInputValidator(
             self.source_table, self.validation_table, self.model_output_table,
             self.model_arch_table, mb_dep_var_col, mb_indep_var_col,
@@ -136,15 +138,16 @@ class FitMultipleModel():
         reset_cuda_env(original_cuda_env)
 
     def train_multiple_model(self):
+        total_msts = len(self.msts_for_schedule)
         for e in range(self.num_iterations):
-            for i in range(len(self.msts_for_schedule)):
+            for i in range(total_msts):
                 mst_row = [self.grand_schedule[dist_key][i]
                            for dist_key in self.dist_keys]
                 self.create_mst_schedule_table(mst_row)
                 if i == 0:
                     start_iteration = time.time()
                 self.run_training()
-                if i == (len(self.msts_for_schedule) - 1):
+                if i == (total_msts - 1):
                     end_iteration = time.time()
                     self.info_str = "\tTime for training in iteration {0}: {1} sec\n".format(e,
                                                                                       end_iteration - start_iteration)
@@ -155,8 +158,6 @@ class FitMultipleModel():
             plpy.info("\n"+self.info_str)
 
     def evaluate_model(self, epoch, table, is_train):
-        # res = self.query_weights()
-        # res_map = {x[self.mst_key_col]: x[self.model_weights_col] for x in res if x[self.model_weights_col]}
         if is_train:
             mst_metric_eval_time = self.train_mst_metric_eval_time
             mst_loss = self.train_mst_loss
@@ -169,6 +170,7 @@ class FitMultipleModel():
             mst_metric = self.valid_mst_metric
             seg_ids = self.seg_ids_valid
             images_per_seg = self.images_per_seg_valid
+        plpy.info(self.msts)
         for mst in self.msts:
             state = self.query_weights(mst[self.mst_key_col])
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
@@ -290,10 +292,13 @@ class FitMultipleModel():
                                                      self.gpus_per_host
                                                      )
             model = model_from_json(model_arch)
+            plpy.info("Initial weights {}".format(model.get_weights()))
 
             serialized_state = \
                 madlib_keras_serializer.serialize_state_with_nd_weights(
                     0, model.get_weights())
+            # serialized_weights = madlib_keras_serializer.serialize_nd_weights(
+            #     model.get_weights())
             model_size = sys.getsizeof(serialized_weights) / 1024.0
             metrics_list = get_metrics_from_compile_param(
                 mst[self.compile_params_col])
@@ -330,6 +335,7 @@ class FitMultipleModel():
                            model_size=model_size,
                            metrics_type=metrics_type)
             plpy.execute(info_table_insert_query)
+            plpy.info(plpy.execute("SELECT {self.model_weights_col} from {self.model_output_table}".format(self=self))[0])
 
     def create_model_summary_table(self):
         src_summary_dict = get_source_summary_table_dict(self.fit_validator_train)
@@ -435,6 +441,8 @@ class FitMultipleModel():
             CREATE TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                                                       {mb_indep_var_col},
+                                                      {self.dep_shape_col},
+                                                      {self.ind_shape_col},
                                                       {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
                                                       {self.mst_weights_tbl}.{self.compile_params_col}::TEXT,
                                                       {self.mst_weights_tbl}.{self.fit_params_col}::TEXT,

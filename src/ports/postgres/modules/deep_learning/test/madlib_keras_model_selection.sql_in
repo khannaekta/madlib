@@ -136,12 +136,6 @@ FROM mst_table;
 m4_changequote(`<!', `!>')
 m4_ifdef(<!__POSTGRESQL__!>, <!!>, <!
 -- Multiple models test
-DROP TABLE if exists iris_data_packed_dist, iris_data_packed_dist_summary;
-CREATE TABLE iris_data_packed_dist AS
-	SELECT *, (row_number() over())%3 AS __dist_key__ FROM iris_data_packed
-DISTRIBUTED BY (__dist_key__);
-CREATE TABLE iris_data_packed_dist_summary AS SELECT * FROM iris_data_packed_summary;
-
 -- Prepare model selection table with three rows
 DROP TABLE IF EXISTS mst_table, mst_table_summary;
 SELECT load_model_selection_table(
@@ -190,7 +184,7 @@ SELECT load_model_selection_table(
 DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
 SELECT setseed(0);
 SELECT madlib_keras_fit_multiple_model(
-	'iris_data_packed_dist',
+	'iris_data_packed',
 	'iris_multiple_model',
 	'mst_table',
 	6,
@@ -200,7 +194,7 @@ SELECT madlib_keras_fit_multiple_model(
 SELECT assert(
         model_arch_table = 'iris_model_arch' AND
         model_info = 'iris_multiple_model_info' AND
-        source_table = 'iris_data_packed_dist' AND
+        source_table = 'iris_data_packed' AND
         model = 'iris_multiple_model' AND
         dependent_varname = 'class_text' AND
         independent_varname = 'attributes' AND
@@ -255,7 +249,7 @@ WHERE compile_params like '%lr=0.01%';
 -- Test when number of configs(1) is less than number of segments(3)
 DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
 SELECT madlib_keras_fit_multiple_model(
-	'iris_data_packed_dist',
+	'iris_data_packed',
 	'iris_multiple_model',
 	'mst_table_1row',
 	3,
@@ -287,7 +281,7 @@ WHERE compile_params = $MAD$loss='categorical_crossentropy', optimizer='Adam(lr=
 -- Test when number of configs(4) larger than number of segments(3)
 DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
 SELECT madlib_keras_fit_multiple_model(
-	'iris_data_packed_dist',
+	'iris_data_packed',
 	'iris_multiple_model',
 	'mst_table_4row',
 	3,

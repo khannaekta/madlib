@@ -455,8 +455,8 @@ class FitMultipleInputValidator(FitInputValidator):
 
         # Source table and validation tables must have the same schema
         self._validate_input_table(self.source_table)
-        validate_dependent_var_for_minibatch(self.source_table,
-                                             self.dependent_varname)
+        validate_bytea_var_for_minibatch(self.source_table,
+                                         self.dependent_varname)
 
         self._validate_validation_table()
         input_tbl_valid(self.model_arch_table, self.module_name)
