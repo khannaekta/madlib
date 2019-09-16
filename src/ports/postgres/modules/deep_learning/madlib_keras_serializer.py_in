@@ -18,6 +18,8 @@
 # under the License.
 import numpy as np
 from utilities.utilities import _assert
+from numpy.random import seed
+seed(1)
 
 # TODO
 # 1. Current serializing logic
@@ -126,7 +128,7 @@ def deserialize_as_image_1d_weights(state):
     """
     if not state:
         return None
-    state = np.frombuffer(state, dtype=np.float32)
+    state = np.fromstring(state, dtype=np.float32)
     return float(state[0]), state[1:]
 
 
@@ -158,7 +160,7 @@ def deserialize_as_nd_weights(model_weights_serialized, model_shapes):
         return None
 
     i, j, model_weights = 0, 0, []
-    model_weights_serialized = np.frombuffer(model_weights_serialized, dtype=np.float32)
+    model_weights_serialized = np.fromstring(model_weights_serialized, dtype=np.float32)
 
     total_model_shape = \
         sum([reduce(lambda x, y: x * y, ls) for ls in model_shapes])
