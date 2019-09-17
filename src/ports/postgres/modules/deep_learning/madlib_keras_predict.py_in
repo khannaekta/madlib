@@ -78,15 +78,15 @@ class BasePredict():
             self.test_table)
         segments_per_host = get_segments_per_host()
 
-        predict_query = plpy.prepare("""
+        predict_query = """
             CREATE TABLE {self.output_table} AS
             SELECT {self.id_col}, {prediction_select_clause}
             FROM (
                 SELECT {self.test_table}.{self.id_col},
                        ({self.schema_madlib}.internal_keras_predict
                            ({self.independent_varname},
-                            $1,
-                            $2,
+                            {model_arch}::TEXT,
+                            {model_data},
                             {self.is_response},
                             {self.normalizing_const},
                             {gp_segment_id_col},
@@ -95,16 +95,19 @@ class BasePredict():
                             {self.gpus_per_host},
                             {segments_per_host})
                        ) AS {intermediate_col}
-            FROM {self.test_table}
+            FROM {self.test_table}, {self.model_table}
             ) q
             """.format(self=self, prediction_select_clause=prediction_select_clause,
                        seg_ids_test=seg_ids_test,
                        images_per_seg_test=images_per_seg_test,
                        gp_segment_id_col=gp_segment_id_col,
                        segments_per_host=segments_per_host,
-                       intermediate_col=intermediate_col),
-                                     ["text", "bytea"])
-        plpy.execute(predict_query, [self.model_arch, self.model_weights])
+                       intermediate_col=intermediate_col,
+                       model_arch=ModelArchSchema.MODEL_ARCH,
+                       model_data='model_data')
+                                     # ["text", "bytea"])
+        plpy.info(predict_query)
+        plpy.execute(predict_query)#, [self.model_arch, self.model_weights])
 
     def set_default_class_values(self, class_values):
         self.class_values = class_values
