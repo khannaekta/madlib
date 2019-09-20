@@ -105,7 +105,7 @@ class InputValidator:
         """
 
         ind_shape_col = add_postfix(independent_varname, "_shape")
-        minibatched = is_var_valid(table, ind_shape_col)
+        minibatched = offset > 1 and is_var_valid(table, ind_shape_col)
         if minibatched:
             query = """
                 SELECT {ind_shape_col} AS shape
