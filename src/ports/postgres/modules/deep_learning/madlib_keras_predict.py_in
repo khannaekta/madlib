@@ -78,6 +78,14 @@ class BasePredict():
             self.test_table)
         segments_per_host = get_segments_per_host()
 
+        select_segmentid_comma = ""
+        group_by_clause = ""
+        join_cond_on_segmentid = ""
+        if not is_platform_pg():
+            select_segmentid_comma = "{self.test_table}.gp_segment_id AS gp_segment_id,".format(self=self)
+            group_by_clause = "GROUP BY {self.test_table}.gp_segment_id".format(self=self)
+            join_cond_on_segmentid = "{self.test_table}.gp_segment_id=min_ctid.gp_segment_id AND".format(self=self)
+
         predict_query = plpy.prepare("""
             CREATE TABLE {self.output_table} AS
             SELECT {self.id_col}, {prediction_select_clause}
@@ -86,7 +94,7 @@ class BasePredict():
                        ({self.schema_madlib}.internal_keras_predict
                            ({self.independent_varname},
                             $1,
-                            case when {self.test_table}.ctid = s.cid then $2 else NULL end,
+                            CASE WHEN {self.test_table}.ctid = min_ctid.ctid THEN $2 ELSE NULL END,
                             {self.is_response},
                             {self.normalizing_const},
                             {gp_segment_id_col},
@@ -97,16 +105,20 @@ class BasePredict():
                        ) AS {intermediate_col}
             FROM {self.test_table}
             LEFT JOIN 
-                (select {self.test_table}.gp_segment_id as dk, min({self.test_table}.ctid) as cid 
-                from {self.test_table} group by {self.test_table}.gp_segment_id) s 
-            on {self.test_table}.gp_segment_id=dk and {self.test_table}.ctid=cid
+                (SELECT {select_segmentid_comma} MIN({self.test_table}.ctid) AS ctid
+                 FROM {self.test_table}
+                 {group_by_clause}) min_ctid
+            ON {join_cond_on_segmentid} {self.test_table}.ctid=min_ctid.ctid
             ) q
             """.format(self=self, prediction_select_clause=prediction_select_clause,
                        seg_ids_test=seg_ids_test,
                        images_per_seg_test=images_per_seg_test,
                        gp_segment_id_col=gp_segment_id_col,
                        segments_per_host=segments_per_host,
-                       intermediate_col=intermediate_col),
+                       intermediate_col=intermediate_col,
+                       select_segmentid_comma=select_segmentid_comma,
+                       group_by_clause=group_by_clause,
+                       join_cond_on_segmentid=join_cond_on_segmentid),
                                      ["text", "bytea"])
         plpy.execute(predict_query, [self.model_arch, self.model_weights])
 
