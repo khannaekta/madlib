@@ -309,4 +309,32 @@ SELECT assert(cnt = 1,
 FROM (SELECT count(*) cnt FROM iris_multiple_model_info
 WHERE compile_params = $MAD$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)', metrics=['accuracy']$MAD$::text
 AND fit_params = $MAD$batch_size=32, epochs=1$MAD$::text) info;
+
+-- Test for one-hot encoded input data
+UPDATE iris_data_packed_summary SET num_classes = NULL;
+UPDATE iris_data_packed_summary SET class_values = NULL;
+DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
+SELECT setseed(0);
+SELECT madlib_keras_fit_multiple_model(
+	'iris_data_packed',
+	'iris_multiple_model',
+	'mst_table',
+	6,
+	0
+);
+
+SELECT assert(
+        model_arch_table = 'iris_model_arch' AND
+        model_info = 'iris_multiple_model_info' AND
+        source_table = 'iris_data_packed' AND
+        model = 'iris_multiple_model' AND
+        dependent_varname = 'class_text' AND
+        independent_varname = 'attributes' AND
+        madlib_version is NOT NULL AND
+        num_iterations = 6 AND
+        num_classes = NULL AND
+        class_values = NULL AND
+        normalizing_const = 1,
+        'Keras Fit Multiple Output Summary Validation failed. Actual:' || __to_char(summary))
+FROM (SELECT * FROM iris_multiple_model_summary) summary;
 !>)
