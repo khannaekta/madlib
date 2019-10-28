@@ -215,11 +215,8 @@ class InputValidator:
         cols_to_check_for = [CLASS_VALUES_COLNAME,
                              DEPENDENT_VARNAME_COLNAME,
                              DEPENDENT_VARTYPE_COLNAME,
-                             MODEL_ARCH_ID_COLNAME,
                              MODEL_ARCH_TABLE_COLNAME,
-                             NORMALIZING_CONST_COLNAME,
-                             COMPILE_PARAMS_COLNAME,
-                             METRIC_TYPE_COLNAME]
+                             NORMALIZING_CONST_COLNAME]
         _assert(columns_exist_in_table(
             model_summary_table, cols_to_check_for),
             "{0} error: One or more expected columns missing in model "
