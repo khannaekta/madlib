@@ -89,17 +89,17 @@ def get_gpus_per_seg():
         return gpus_per_seg.values()
 
 
-def read_gpu_config(model_table):
+def read_gpu_config(source_table):
 
-    summary_table = add_postfix(model_table, "_summary")
+    summary_table = add_postfix(source_table, "_summary")
     gpu_config = plpy.execute("SELECT gpu_config FROM {}".format(summary_table))[0]['gpu_config']
     return gpu_config
 
 
-def validate_gpu_config(model_table, use_gpus, gpus_per_seg):
+def validate_gpu_config(source_table, use_gpus, gpus_per_seg):
 
     segments_per_host = get_segments_per_host()
-    gpu_config = read_gpu_config(model_table)
+    gpu_config = read_gpu_config(source_table)
 
     if gpu_config is 'all_segments':
         _assert(get_seg_number() == len(gpus_per_seg), 'Not every host has gpus.')
@@ -153,7 +153,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
 
     if use_gpus:
         gpus_per_seg = get_gpus_per_seg()
-        validate_gpu_config(model_table, gpus_per_seg)
+        validate_gpu_config(source_table, gpus_per_seg)
     else:
         if is_platform_pg():
             gpus_per_seg = [0]
