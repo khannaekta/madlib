@@ -525,6 +525,8 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         return state
     SD = kwargs['SD']
     plpy.info("current_seg_id {} ".format(current_seg_id))
+    plpy.info("seg_ids {} ".format(seg_ids))
+    current_seg_id = seg_ids.index(current_seg_id)
     device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, current_seg_id)
 
     segment_model, sess = get_init_model_and_sess(SD, device_name,
@@ -721,11 +723,11 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             ARRAY{seg_ids},
                                             ARRAY{images_per_seg},
                                             {use_gpus},
-                                            {gpus_per_seg},
+                                            ARRAY{gpus_per_seg},
                                             {is_final_iteration}
                                             )) as loss_metric
         from {table}
-    """.format(**locals()), ["bytea"])
+        """.format(**locals()), ["bytea"])
     res = plpy.execute(evaluate_query, [serialized_weights])
     loss_metric = res[0]['loss_metric']
     return loss_metric
@@ -738,6 +740,7 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
                                    use_gpus, gpus_per_seg,
                                    is_final_iteration, **kwargs):
     SD = kwargs['SD']
+    current_seg_id = seg_ids.index(current_seg_id)
     device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, current_seg_id)
     agg_loss, agg_metric, agg_image_count = state
 

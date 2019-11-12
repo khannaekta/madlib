@@ -1987,7 +1987,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_eval_transition(
     seg_ids                            INTEGER[],
     images_per_seg                     INTEGER[],
     use_gpus                           BOOLEAN,
-    segments_per_host                  INTEGER[],
+    gpus_per_seg                       INTEGER[],
     is_final_iteration                 BOOLEAN
 ) RETURNS REAL[3] AS $$
 PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
@@ -2039,7 +2039,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
     /* seg_ids */                      INTEGER[],
     /* images_per_seg*/                INTEGER[],
     /* use_gpus */                     BOOLEAN,
-    /* segments_per_host */            INTEGER[],
+    /* gpus_per_seg */                 INTEGER[],
     /* is_final_iteration */           BOOLEAN
 )(
     STYPE=REAL[3],
