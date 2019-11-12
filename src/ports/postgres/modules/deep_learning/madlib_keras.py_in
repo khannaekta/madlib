@@ -32,11 +32,13 @@ from madlib_keras_helper import *
 from madlib_keras_validator import *
 from madlib_keras_wrapper import *
 from model_arch_info import *
+from madlib_keras_gpu_info import GPUInfoFunctions
 
 from utilities.utilities import _assert
 from utilities.utilities import add_postfix
 from utilities.utilities import is_platform_pg
 from utilities.utilities import get_segments_per_host
+from utilities.utilities import get_seg_number
 from utilities.utilities import madlib_version
 from utilities.utilities import unique_string
 from utilities.validate_args import get_expr_type
@@ -57,29 +59,51 @@ class SD_STORE:
         del SD[SD_STORE.SEGMENT_MODEL]
         del SD[SD_STORE.SESS]
 
-def get_gpus_per_seg()
-    gpu_query = """
-        SELECT t2.hostname as hostname, t2.content AS segment_id
-        FROM {self.schema_madlib}.gpu_configuration() AS t1, gp_segment_configuration AS t2
-        WHERE content != -1 AND role = 'p' AND t1.hostname=t2.hostname
-    """.format(**locals())
-    gpu_query_result = plpy.execute(gpu_query)
+def get_gpus_per_seg():
 
-    if not gpu_query_result:
-       plpy.error("{self.module_name}: No GPUs configured on hosts.".format(self=self))
+    if is_platform_pg():
+        gpus = GPUInfoFunctions.get_gpu_info_from_tensorflow()
+        return [len(gpus)]
+    else:
+        gpu_query = """
+            SELECT t2.hostname as hostname, t2.content AS segment_id
+            FROM {self.schema_madlib}.gpu_configuration() AS t1, gp_segment_configuration AS t2
+            WHERE content != -1 AND role = 'p' AND t1.hostname=t2.hostname
+        """.format(**locals())
+        gpu_query_result = plpy.execute(gpu_query)
 
-    host_dict = {}
-    for i in gpu_query_result:
-        if not host_dict[i['hostname']]:
-            host_dict[i['hostname']] = 1
-        else:
-            host_dict[i['hostname']] += 1
+        if not gpu_query_result:
+           plpy.error("{self.module_name}: No GPUs configured on hosts.".format(self=self))
 
-    gpus_per_seg = {}
-    for i in gpu_query_result:
-        gpus_per_seg[i['segment_id']] = host_dict[i['hostname']]
+        host_dict = {}
+        for i in gpu_query_result:
+            if not host_dict[i['hostname']]:
+                host_dict[i['hostname']] = 1
+            else:
+                host_dict[i['hostname']] += 1
 
-    return gpus_per_seg.values()
+        gpus_per_seg = {}
+        for i in gpu_query_result:
+            gpus_per_seg[i['segment_id']] = host_dict[i['hostname']]
+
+        return gpus_per_seg.values()
+
+
+def read_gpu_config(model_table):
+
+    summary_table = add_postfix(model_table, "_summary")
+    gpu_config = plpy.execute("SELECT gpu_config FROM {}".format(summary_table))[0]['gpu_config']
+    return gpu_config
+
+
+def validate_gpu_config(model_table, use_gpus, gpus_per_seg):
+
+    segments_per_host = get_segments_per_host()
+    gpu_config = read_gpu_config(model_table)
+
+    if gpu_config is 'all_segments':
+        _assert(get_seg_number() == len(gpus_per_seg), 'Not every host has gpus.')
+        return
 
 
 def get_init_model_and_sess(SD, device_name, use_gpus, segments_per_host,
@@ -126,10 +150,17 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # The following two times must be recorded together.
     metrics_elapsed_start_time = time.time()
     start_training_time = datetime.datetime.now()
+
     if use_gpus:
         gpus_per_seg = get_gpus_per_seg()
+        validate_gpu_config(model_table, gpus_per_seg)
+    else:
+        if is_platform_pg():
+            gpus_per_seg = [0]
+        else :
+            gpus_per_seg = get_seg_number()*[0]
 
-    segments_per_host, use_gpus = get_segments_and_gpus(model_table, use_gpus)
+
     warm_start = bool(warm_start)
 
     #TODO add a unit test for this in a future PR
@@ -147,7 +178,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
 
     serialized_weights = get_initial_weights(model, model_arch, model_weights,
-                                             warm_start, use_gpus)
+                                             warm_start, use_gpus, gpus_per_seg)
     # Compute total images on each segment
     seg_ids_train, images_per_seg_train = get_image_count_per_seg_for_minibatched_data_from_db(source_table)
 
@@ -175,7 +206,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             ARRAY{seg_ids_train},
             ARRAY{images_per_seg_train},
             {use_gpus},
-            {segments_per_host},
+            ARRAY{gpus_per_seg},
             $1,
             $2
         ) AS iteration_result
@@ -194,7 +225,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
         serialized_weights = plpy.execute(run_training_iteration,
-                                        [serialized_weights, is_final_iteration])[0]['iteration_result']
+                                        [serialized_weights, is_final_iteration])
+
+        plpy.info(serialized_weights)
+        serialized_weights = serialized_weights[0]['iteration_result']
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
             end_iteration - start_iteration)
@@ -204,7 +238,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             # Compute loss/accuracy for training data.
             compute_out = compute_loss_and_metrics(
                 schema_madlib, source_table, compile_params_to_pass, model_arch,
-                serialized_weights, use_gpus, segments_per_host, seg_ids_train,
+                serialized_weights, use_gpus, gpus_per_seg, seg_ids_train,
                 images_per_seg_train, training_metrics, training_loss, i, is_final_iteration)
             metrics_iters.append(i)
             compute_time, compute_metrics, compute_loss = compute_out
@@ -220,7 +254,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                 # Compute loss/accuracy for validation data.
                 val_compute_out = compute_loss_and_metrics(
                     schema_madlib, validation_table, compile_params_to_pass,
-                    model_arch, serialized_weights, use_gpus, segments_per_host,
+                    model_arch, serialized_weights, use_gpus, gpus_per_seg,
                     seg_ids_val, images_per_seg_val, validation_metrics,
                     validation_loss, i, is_final_iteration)
                 val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
@@ -335,7 +369,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     #TODO add a unit test for this in a future PR
     reset_cuda_env(original_cuda_env)
 
-def get_initial_weights(model_table, model_arch, serialized_weights, warm_start, use_gpus):
+def get_initial_weights(model_table, model_arch, serialized_weights, warm_start, use_gpus, gpus_per_seg):
     """
         If warm_start is True, return back initial weights from model table.
         If warm_start is False, first try to get the weights from model_arch
@@ -354,9 +388,9 @@ def get_initial_weights(model_table, model_arch, serialized_weights, warm_start,
             @param warm_start: Boolean flag indicating warm start or not.
     """
     if is_platform_pg():
-        _ = get_device_name_and_set_cuda_env(use_gpus, None)
+        _ = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, None)
     else:
-        _ = get_device_name_and_set_cuda_env(False, None)
+        _ = get_device_name_and_set_cuda_env(False, gpus_per_seg, None)
 
     if warm_start:
         serialized_weights = plpy.execute("""
@@ -402,7 +436,7 @@ def get_metrics_sql_string(metrics_list, is_metrics_specified):
     return metrics_final, metrics_all
 
 def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
-                             serialized_weights, use_gpus, segments_per_host,
+                             serialized_weights, use_gpus, gpus_per_seg,
                              seg_ids, images_per_seg_val, metrics_list, loss_list,
                              curr_iter, is_final_iteration):
     """
@@ -416,7 +450,7 @@ def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                                                    model_arch,
                                                    serialized_weights,
                                                    use_gpus,
-                                                   segments_per_host,
+                                                   gpus_per_seg,
                                                    seg_ids,
                                                    images_per_seg_val,
                                                    is_final_iteration)
@@ -468,7 +502,7 @@ def update_model(segment_model, prev_serialized_weights):
 def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                    independent_var_shape, model_architecture,
                    compile_params, fit_params, current_seg_id, seg_ids,
-                   images_per_seg, use_gpus, segments_per_host,
+                   images_per_seg, use_gpus, gpus_per_seg,
                    prev_serialized_weights, is_final_iteration=True,
                    is_multiple_model=False, **kwargs):
     """
@@ -490,10 +524,11 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     if not independent_var or not dependent_var:
         return state
     SD = kwargs['SD']
-    device_name = get_device_name_and_set_cuda_env(use_gpus, current_seg_id)
+    plpy.info("current_seg_id {} ".format(current_seg_id))
+    device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, current_seg_id)
 
     segment_model, sess = get_init_model_and_sess(SD, device_name,
-                                                  use_gpus, segments_per_host,
+                                                  use_gpus, gpus_per_seg[current_seg_id],
                                                   model_architecture, compile_params)
     agg_image_count = madlib_keras_serializer.get_image_count_from_state(state)
     if not state:
@@ -576,46 +611,6 @@ def fit_final_multiple_model(state, **kwargs):
 
     return madlib_keras_serializer.serialize_nd_weights(weights)
 
-def read_gpu_config(model_table):
-
-    summary_table = add_postfix(model_table, "_summary")
-    gpu_config = plpy.execute("SELECT gpu_config FROM {}".format(summary_table))[0]['gpu_config']
-    return gpu_config
-
-
-def get_segments_and_gpus(model_table, use_gpus):
-
-    segments_per_host = get_segments_per_host()
-    if use_gpus:
-
-        gpu_config = read_gpu_config(model_table)
-        if gpu_config is 'all_segments':
-            gpu_query = """
-                SELECT count(DISTINCT(hostname)) as hosts_with_gpu_count
-                FROM {self.schema_madlib}.gpu_configuration()
-            """.format(**locals())
-            host_with_gpu_count = plpy.execute(gpu_query)[0]['hosts_with_gpu_count']
-
-            host_count_query = """
-                SELECT count(DISTINCT(hostname)) as host_count
-                FROM gp_segment_configuration
-                WHERE content != -1 AND role = 'p'
-            """.format(**locals())
-            host_count = plpy.execute(host_count_query)[0]['host_count']
-            _assert(host_with_gpu_count == host_count, 'Not every host has gpus.')
-            return segments_per_host
-
-    else:
-        return segments_per_host
-
-    if 0 < use_gpus < segments_per_host:
-        plpy.warning('The number of GPUs per segment host is less than the number of '
-                     'segments per segment host. When different segments share the same GPU, '
-                     'this may fail in some scenarios. The current recommended configuration '
-                     'is to have 1 GPU available per segment.')
-
-    return segments_per_host, use_gpus
-
 def evaluate(schema_madlib, model_table, test_table, output_table,
              use_gpus, mst_key, **kwargs):
 
@@ -697,7 +692,7 @@ def validate_evaluate(module_name, model_table, model_summary_table, test_table,
 
 def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                     model_arch, serialized_weights, use_gpus,
-                                    segments_per_host, seg_ids, images_per_seg,
+                                    gpus_per_seg, seg_ids, images_per_seg,
                                     is_final_iteration=True):
 
     dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
@@ -726,7 +721,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             ARRAY{seg_ids},
                                             ARRAY{images_per_seg},
                                             {use_gpus},
-                                            {segments_per_host},
+                                            {gpus_per_seg},
                                             {is_final_iteration}
                                             )) as loss_metric
         from {table}
@@ -740,10 +735,10 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
                                    dependent_var_shape, independent_var_shape,
                                    model_architecture, serialized_weights, compile_params,
                                    current_seg_id, seg_ids, images_per_seg,
-                                   use_gpus, segments_per_host,
+                                   use_gpus, gpus_per_seg,
                                    is_final_iteration, **kwargs):
     SD = kwargs['SD']
-    device_name = get_device_name_and_set_cuda_env(use_gpus, current_seg_id)
+    device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, current_seg_id)
     agg_loss, agg_metric, agg_image_count = state
 
     # This transition function is common to evaluate as well as the fit functions
@@ -758,7 +753,7 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
     #  if is_final_iteration is false, we can clear the
 
     segment_model, sess = get_init_model_and_sess(SD, device_name, use_gpus,
-                                                  segments_per_host, model_architecture,
+                                                  gpus_per_seg[current_seg_id], model_architecture,
                                                   compile_params)
     if not agg_image_count:
         # These should already be 0, but just in case make sure

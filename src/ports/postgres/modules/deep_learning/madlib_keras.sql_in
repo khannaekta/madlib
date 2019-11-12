@@ -1711,7 +1711,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit(
     fit_params              VARCHAR,
     num_iterations          INTEGER
 ) RETURNS VOID AS $$
-    SELECT MADLIB_SCHEMA.madlib_keras_fit($1, $2, $3, $4, $5, $6, $7, 0, NULL, NULL, NULL, NULL, NULL);
+    SELECT MADLIB_SCHEMA.madlib_keras_fit($1, $2, $3, $4, $5, $6, $7, FALSE, NULL, NULL, NULL, NULL, NULL);
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
@@ -1727,8 +1727,8 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     current_seg_id             INTEGER,
     seg_ids                    INTEGER[],
     images_per_seg             INTEGER[],
-    use_gpus              INTEGER,
-    segments_per_host          INTEGER,
+    use_gpus              BOOLEAN,
+    gpus_per_seg          INTEGER[],
     prev_serialized_weights    BYTEA,
     is_final_iteration         BOOLEAN
 ) RETURNS BYTEA AS $$
@@ -1765,8 +1765,8 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
     INTEGER,
     INTEGER[],
     INTEGER[],
-    INTEGER,
-    INTEGER,
+    BOOLEAN,
+    INTEGER[],
     BYTEA,
     BOOLEAN);
 CREATE AGGREGATE MADLIB_SCHEMA.fit_step(
@@ -1780,8 +1780,8 @@ CREATE AGGREGATE MADLIB_SCHEMA.fit_step(
     /* current_seg_id */         INTEGER,
     /* seg_ids*/                 INTEGER[],
     /* images_per_seg*/          INTEGER[],
-    /* use_gpus  */         INTEGER,
-    /* segments_per_host  */     INTEGER,
+    /* use_gpus  */         BOOLEAN,
+    /* segments_per_host  */     INTEGER[],
     /* serialized_weights */     BYTEA,
     /* is_final_iteration */     BOOLEAN
 )(
@@ -1836,7 +1836,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     output_table            VARCHAR,
     pred_type               VARCHAR
 ) RETURNS VOID AS $$
-    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, $6, 0, NULL);
+    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, $6, FALSE, NULL);
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
@@ -1847,7 +1847,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     independent_varname     VARCHAR,
     output_table            VARCHAR
 ) RETURNS VOID AS $$
-    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, NULL, 0, NULL);
+    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, NULL, FALSE, NULL);
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
@@ -1860,8 +1860,8 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_predict(
     current_seg_id     INTEGER,
     seg_ids            INTEGER[],
     images_per_seg     INTEGER[],
-    use_gpus      INTEGER,
-    segments_per_host  INTEGER
+    use_gpus      BOOLEAN,
+    gpus_per_seg  INTEGER[]
 ) RETURNS DOUBLE PRECISION[] AS $$
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_predict')
     return madlib_keras_predict.internal_keras_predict(**globals())
@@ -1986,8 +1986,8 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_eval_transition(
     current_seg_id                     INTEGER,
     seg_ids                            INTEGER[],
     images_per_seg                     INTEGER[],
-    use_gpus                      INTEGER,
-    segments_per_host                  INTEGER,
+    use_gpus                           BOOLEAN,
+    segments_per_host                  INTEGER[],
     is_final_iteration                 BOOLEAN
 ) RETURNS REAL[3] AS $$
 PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
@@ -2023,8 +2023,8 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.internal_keras_evaluate(
                                        INTEGER,
                                        INTEGER[],
                                        INTEGER[],
-                                       INTEGER,
-                                       INTEGER,
+                                       BOOLEAN,
+                                       INTEGER[],
                                        BOOLEAN);
 
 CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
@@ -2039,7 +2039,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
     /* seg_ids */                      INTEGER[],
     /* images_per_seg*/                INTEGER[],
     /* use_gpus */                     BOOLEAN,
-    /* segments_per_host */            INTEGER,
+    /* segments_per_host */            INTEGER[],
     /* is_final_iteration */           BOOLEAN
 )(
     STYPE=REAL[3],
