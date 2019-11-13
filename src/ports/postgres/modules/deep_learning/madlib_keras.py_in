@@ -111,6 +111,11 @@ def validate_gpu_config(source_table, gpus_per_seg):
     if gpu_config == 'all_segments':
         _assert(0 not in gpus_per_seg, 'Not every host has gpus.')
         return
+    else:
+        plpy.info("gpu_config {}".format(**locals()))
+        plpy.info("gpus_per_seg {}".format(**locals()))
+
+
 
 
 def get_init_model_and_sess(SD, device_name, use_gpus, segments_per_host,
