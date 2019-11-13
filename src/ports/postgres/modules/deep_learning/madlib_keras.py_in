@@ -59,7 +59,7 @@ class SD_STORE:
         del SD[SD_STORE.SEGMENT_MODEL]
         del SD[SD_STORE.SESS]
 
-def get_gpus_per_seg():
+def get_gpus_per_seg(schema_madlib):
 
     if is_platform_pg():
         gpus = GPUInfoFunctions.get_gpu_info_from_tensorflow()
@@ -67,13 +67,13 @@ def get_gpus_per_seg():
     else:
         gpu_query = """
             SELECT t2.hostname as hostname, t2.content AS segment_id
-            FROM {self.schema_madlib}.gpu_configuration() AS t1, gp_segment_configuration AS t2
+            FROM {schema_madlib}.gpu_configuration() AS t1, gp_segment_configuration AS t2
             WHERE content != -1 AND role = 'p' AND t1.hostname=t2.hostname
         """.format(**locals())
         gpu_query_result = plpy.execute(gpu_query)
 
         if not gpu_query_result:
-           plpy.error("{self.module_name}: No GPUs configured on hosts.".format(self=self))
+           plpy.error("No GPUs configured on hosts.")
 
         host_dict = {}
         for i in gpu_query_result:
@@ -152,7 +152,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     start_training_time = datetime.datetime.now()
 
     if use_gpus:
-        gpus_per_seg = get_gpus_per_seg()
+        gpus_per_seg = get_gpus_per_seg(schema_madlib)
         validate_gpu_config(source_table, gpus_per_seg)
     else:
         if is_platform_pg():
@@ -227,7 +227,6 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         serialized_weights = plpy.execute(run_training_iteration,
                                         [serialized_weights, is_final_iteration])
 
-        plpy.info(serialized_weights)
         serialized_weights = serialized_weights[0]['iteration_result']
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
@@ -524,8 +523,6 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     if not independent_var or not dependent_var:
         return state
     SD = kwargs['SD']
-    plpy.info("current_seg_id {} ".format(current_seg_id))
-    plpy.info("seg_ids {} ".format(seg_ids))
     current_seg_id = seg_ids.index(current_seg_id)
     device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, current_seg_id)
 
