@@ -87,7 +87,8 @@ def get_gpus_per_seg(schema_madlib):
 
         gpus_per_seg = [0] * len(seg_query_result)
         for i in seg_query_result:
-            gpus_per_seg[i['segment_id']] = host_dict[i['hostname']]
+            if i['hostname'] in host_dict.keys():
+                gpus_per_seg[i['segment_id']] = host_dict[i['hostname']]
 
         plpy.info(gpus_per_seg)
         return gpus_per_seg
