@@ -65,11 +65,10 @@ def get_gpus_per_seg(schema_madlib):
         gpus = GPUInfoFunctions.get_gpu_info_from_tensorflow()
         return [len(gpus)]
     else:
+
         gpu_query = """
-            SELECT t2.hostname as hostname, t2.content AS segment_id
-            FROM {schema_madlib}.gpu_configuration() AS t1, gp_segment_configuration AS t2
-            WHERE content != -1 AND role = 'p' AND t1.hostname=t2.hostname
-        """.format(**locals())
+            select hostname, count(*) as count from  {schema_madlib}.gpu_configuration() group by hostname
+            """.format(**locals())
         gpu_query_result = plpy.execute(gpu_query)
 
         if not gpu_query_result:
@@ -77,16 +76,21 @@ def get_gpus_per_seg(schema_madlib):
 
         host_dict = {}
         for i in gpu_query_result:
-            if not host_dict[i['hostname']]:
-                host_dict[i['hostname']] = 1
-            else:
-                host_dict[i['hostname']] += 1
+            host_dict[i['hostname']] = i['count']
 
-        gpus_per_seg = {}
+        seg_query = """
+            SELECT hostname, content AS segment_id
+            FROM gp_segment_configuration
+            WHERE content != -1 AND role = 'p'
+        """
+        seg_query_result = plpy.execute(seg_query)
+
+        gpus_per_seg = [0] * len(seg_query_result)
         for i in gpu_query_result:
             gpus_per_seg[i['segment_id']] = host_dict[i['hostname']]
 
-        return gpus_per_seg.values()
+        plpy.info(gpus_per_seg)
+        return gpus_per_seg
 
 
 def read_gpu_config(source_table):
