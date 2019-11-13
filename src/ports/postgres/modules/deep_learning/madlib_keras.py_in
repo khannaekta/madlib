@@ -552,11 +552,8 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Aggregating number of images, loss and accuracy
     agg_image_count += image_count
     updated_weights = segment_model.get_weights()
-    plpy.info("agg_image_count {}".format(agg_image_count))
     total_images = get_image_count_per_seg_from_array(img_count_mapping.index(dist_key),
                                                       images_per_seg)
-    plpy.info("total_images {}".format(total_images))
-
     if agg_image_count == total_images:
         # For madlib_keras_fit_multiple_model(), we don't need to update weights
         # with the total no of images as there is no merge function for it.
