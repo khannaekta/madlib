@@ -96,7 +96,7 @@ def read_gpu_config(source_table):
     return gpu_config
 
 
-def validate_gpu_config(source_table, use_gpus, gpus_per_seg):
+def validate_gpu_config(source_table, gpus_per_seg):
 
     segments_per_host = get_segments_per_host()
     gpu_config = read_gpu_config(source_table)
