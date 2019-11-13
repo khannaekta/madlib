@@ -112,11 +112,11 @@ def validate_gpu_config(source_table, gpus_per_seg):
         _assert(0 not in gpus_per_seg, 'Not every host has gpus.')
         return
     else:
-        plpy.info("gpu_config {}".format(**locals()))
-        plpy.info("gpus_per_seg {}".format(**locals()))
+        plpy.info("gpu_config {}".format(gpu_config))
+        plpy.info("gpus_per_seg {}".format(gpus_per_seg))
         for i in gpu_config:
             _assert(gpus_per_seg[i] != 0, 'Seg {} does not have gpu'.format(i))
-
+    plpy.info("validation done")
 
 
 
