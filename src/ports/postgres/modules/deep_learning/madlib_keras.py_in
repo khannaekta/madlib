@@ -67,7 +67,7 @@ def get_gpus_per_seg(schema_madlib):
     else:
 
         gpu_query = """
-            select hostname, count(*) as count from  {schema_madlib}.gpu_configuration() group by hostname
+            select hostname, count(*) as count from {schema_madlib}.gpu_configuration() group by hostname
             """.format(**locals())
         gpu_query_result = plpy.execute(gpu_query)
 
@@ -187,11 +187,12 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     input_shape = get_input_shape(model_arch)
     fit_validator.validate_input_shapes(input_shape)
     dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
+    gp_segment_id_col = '0' if is_platform_pg() else 'gp_segment_id'
 
     serialized_weights = get_initial_weights(model, model_arch, model_weights,
                                              warm_start, use_gpus, gpus_per_seg)
     # Compute total images on each segment
-    seg_ids_train, images_per_seg_train = get_image_count_per_seg_for_minibatched_data_from_db(source_table)
+    img_count_mapping, images_per_seg_train = get_image_count_per_seg_for_minibatched_data_from_db(source_table)
 
 
     if validation_table:
@@ -214,7 +215,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             {compile_params_to_pass}::TEXT,
             {fit_params_to_pass}::TEXT,
             {dist_key_col},
-            ARRAY{seg_ids_train},
+            ARRAY{img_count_mapping},
+            {gp_segment_id_col},
             ARRAY{images_per_seg_train},
             {use_gpus},
             ARRAY{gpus_per_seg},
@@ -511,7 +513,7 @@ def update_model(segment_model, prev_serialized_weights):
 
 def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                    independent_var_shape, model_architecture,
-                   compile_params, fit_params, current_seg_id, seg_ids,
+                   compile_params, fit_params, dist_key, img_count_mapping, current_seg_id,
                    images_per_seg, use_gpus, gpus_per_seg,
                    prev_serialized_weights, is_final_iteration=True,
                    is_multiple_model=False, **kwargs):
@@ -534,8 +536,8 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     if not independent_var or not dependent_var:
         return state
     SD = kwargs['SD']
-    plpy.info("dist key {}".format(current_seg_id))
-    current_seg_id = seg_ids.index(current_seg_id)
+    plpy.info("dist {}".format(dist_key))
+    plpy.info("dist {}".format(img_count_mapping))
     plpy.info("actual seg id {}".format(current_seg_id))
     device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg[current_seg_id], current_seg_id)
 
@@ -559,7 +561,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Aggregating number of images, loss and accuracy
     agg_image_count += image_count
     updated_weights = segment_model.get_weights()
-    total_images = get_image_count_per_seg_from_array(current_seg_id, seg_ids,
+    total_images = get_image_count_per_seg_from_array(img_count_mapping.index(dist_key),
                                                       images_per_seg)
 
     if agg_image_count == total_images:
