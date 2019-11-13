@@ -108,7 +108,7 @@ def validate_gpu_config(source_table, gpus_per_seg):
     gpu_config = read_gpu_config(source_table)
 
     plpy.info("gpu_config {} gpus_per_seg {} ".format(gpu_config, gpus_per_seg))
-    if gpu_config is 'all_segments':
+    if gpu_config == 'all_segments':
         _assert(0 not in gpus_per_seg, 'Not every host has gpus.')
         return
 
