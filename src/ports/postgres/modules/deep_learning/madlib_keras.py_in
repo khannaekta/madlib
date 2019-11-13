@@ -76,8 +76,9 @@ def get_gpus_per_seg(schema_madlib):
 
         host_dict = {}
         for i in gpu_query_result:
-            host_dict[i['hostname']] = i['count']
+            host_dict[i['hostname']] = int(i['count'])
 
+        plpy.info(host_dict)
         seg_query = """
             SELECT hostname, content AS segment_id
             FROM gp_segment_configuration
