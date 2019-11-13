@@ -802,6 +802,7 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
     state[1] = agg_metric
     state[2] = agg_image_count
 
+    plpy.info("state {}".format(state))
     return state
 
 def internal_keras_eval_merge(state1, state2, **kwargs):
