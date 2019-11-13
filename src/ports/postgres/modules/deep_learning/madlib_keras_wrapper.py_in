@@ -60,7 +60,7 @@ def reset_cuda_env(value):
 def get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, seg):
 
     if use_gpus:
-        gpu_count = len(gpus_per_seg)
+        gpu_count = gpus_per_seg
         if gpu_count > 0:
             device_name = '/gpu:0'
             if is_platform_pg():

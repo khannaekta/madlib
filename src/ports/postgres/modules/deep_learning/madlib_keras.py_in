@@ -535,7 +535,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         return state
     SD = kwargs['SD']
     current_seg_id = seg_ids.index(current_seg_id)
-    device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, current_seg_id)
+    device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg[current_seg_id], current_seg_id)
 
     segment_model, sess = get_init_model_and_sess(SD, device_name,
                                                   use_gpus, gpus_per_seg[current_seg_id],
