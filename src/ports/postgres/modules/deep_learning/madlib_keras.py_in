@@ -78,7 +78,6 @@ def get_gpus_per_seg(schema_madlib):
         for i in gpu_query_result:
             host_dict[i['hostname']] = int(i['count'])
 
-        plpy.info(host_dict)
         seg_query = """
             SELECT hostname, content AS segment_id
             FROM gp_segment_configuration
@@ -91,7 +90,6 @@ def get_gpus_per_seg(schema_madlib):
             if i['hostname'] in host_dict.keys():
                 gpus_per_seg[i['segment_id']] = host_dict[i['hostname']]
 
-        plpy.info(gpus_per_seg)
         return gpus_per_seg
 
 
@@ -112,12 +110,8 @@ def validate_gpu_config(source_table, gpus_per_seg):
         _assert(0 not in gpus_per_seg, 'Not every host has gpus.')
         return
     else:
-        plpy.info("gpu_config {}".format(gpu_config))
-        plpy.info("gpus_per_seg {}".format(gpus_per_seg))
         for i in gpu_config:
             _assert(gpus_per_seg[i] != 0, 'Seg {} does not have gpu'.format(i))
-    plpy.info("validation done")
-
 
 
 def get_init_model_and_sess(SD, device_name, use_gpus, segments_per_host,
@@ -536,9 +530,6 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     if not independent_var or not dependent_var:
         return state
     SD = kwargs['SD']
-    plpy.info("dist {}".format(dist_key))
-    plpy.info("dist {}".format(img_count_mapping))
-    plpy.info("actual seg id {}".format(current_seg_id))
     device_name = get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg[current_seg_id], current_seg_id)
 
     segment_model, sess = get_init_model_and_sess(SD, device_name,
