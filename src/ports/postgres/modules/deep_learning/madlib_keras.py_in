@@ -107,8 +107,9 @@ def validate_gpu_config(source_table, gpus_per_seg):
     segments_per_host = get_segments_per_host()
     gpu_config = read_gpu_config(source_table)
 
+    plpy.info("gpu_config {} gpus_per_seg {} ".format(gpu_config, gpus_per_seg))
     if gpu_config is 'all_segments':
-        _assert(get_seg_number() == len(gpus_per_seg), 'Not every host has gpus.')
+        _assert(0 not in gpus_per_seg, 'Not every host has gpus.')
         return
 
 
@@ -161,10 +162,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         gpus_per_seg = get_gpus_per_seg(schema_madlib)
         validate_gpu_config(source_table, gpus_per_seg)
     else:
-        if is_platform_pg():
-            gpus_per_seg = [0]
-        else :
-            gpus_per_seg = get_seg_number()*[0]
+        gpus_per_seg = get_seg_number()*[0]
 
 
     warm_start = bool(warm_start)
