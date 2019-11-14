@@ -67,7 +67,7 @@ def get_gpus_per_seg(schema_madlib):
     else:
 
         gpu_query = """
-            select hostname, count(*) as count from {schema_madlib}.gpu_configuration('nvidia') group by hostname
+            select hostname, count(*) as count from {schema_madlib}.gpu_configuration() group by hostname
             """.format(**locals())
         gpu_query_result = plpy.execute(gpu_query)
 
@@ -102,7 +102,6 @@ def read_gpu_config(source_table):
 
 def validate_gpu_config(source_table, gpus_per_seg):
 
-    segments_per_host = get_segments_per_host()
     gpu_config = read_gpu_config(source_table)
 
     plpy.info("gpu_config {} gpus_per_seg {} ".format(gpu_config, gpus_per_seg))
@@ -636,8 +635,14 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
         model_summary_table = create_summary_view(module_name, model_table, mst_key)
 
     validate_evaluate(module_name, model_table, model_summary_table, test_table, test_summary_table, output_table, is_mult_model)
-    segments_per_host, use_gpus = get_segments_and_gpus(use_gpus)
 
+    if use_gpus:
+        gpus_per_seg = get_gpus_per_seg(schema_madlib)
+        validate_gpu_config(test_table, gpus_per_seg)
+    else:
+        gpus_per_seg = get_seg_number()*[0]
+
+    segments_per_host = get_segments_per_host()
     model_weights_query = "SELECT model_weights, model_arch FROM {0} {1}".format(
         model_table, mult_where_clause)
 
@@ -655,13 +660,13 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
     metrics_type = res['metrics_type']
     compile_params = "$madlib$" + res['compile_params'] + "$madlib$"
 
-    seg_ids, images_per_seg = get_image_count_per_seg_for_minibatched_data_from_db(test_table)
+    img_count_mapping, images_per_seg = get_image_count_per_seg_for_minibatched_data_from_db(test_table)
 
     loss, metric = \
         get_loss_metric_from_keras_eval(
             schema_madlib, test_table, compile_params, model_arch,
-            model_weights, use_gpus, segments_per_host,
-            seg_ids, images_per_seg)
+            model_weights, use_gpus, gpus_per_seg, img_count_mapping,
+            images_per_seg)
 
     if not metrics_type:
         metrics_type = None
