@@ -105,6 +105,18 @@ def strip_trailing_nulls_from_class_values(class_values):
         class_values = class_values[:num_of_valid_class_values]
     return class_values
 
+def get_image_count_per_seg_from_array_predict(current_seg_id, seg_ids, images_per_seg):
+    """
+    Get the image count from the array containing all the images
+    per segment. Based on the platform, we find the index of the current segment.
+    This function is only called from inside the transition function.
+    """
+    if is_platform_pg():
+        total_images = images_per_seg[0]
+    else:
+        total_images = images_per_seg[seg_ids.index(current_seg_id)]
+    return total_images
+
 def get_image_count_per_seg_from_array(current_seg_id, images_per_seg):
     """
     Get the image count from the array containing all the images
