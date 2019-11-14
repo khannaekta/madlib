@@ -1867,7 +1867,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_predict(
     seg_ids            INTEGER[],
     images_per_seg     INTEGER[],
     gpus_per_host      INTEGER,
-    gpus_per_seg  INTEGER[]
+    segments_per_host  INTEGER
 ) RETURNS DOUBLE PRECISION[] AS $$
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_predict')
     return madlib_keras_predict.internal_keras_predict(**globals())
