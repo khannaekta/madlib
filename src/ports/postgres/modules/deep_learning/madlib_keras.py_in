@@ -67,7 +67,7 @@ def get_gpus_per_seg(schema_madlib):
     else:
 
         gpu_query = """
-            select hostname, count(*) as count from {schema_madlib}.gpu_configuration() group by hostname
+            select hostname, count(*) as count from {schema_madlib}.gpu_configuration('nvidia') group by hostname
             """.format(**locals())
         gpu_query_result = plpy.execute(gpu_query)
 
@@ -546,6 +546,8 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Fit segment model on data
     #TODO consider not doing this every time
     fit_params = parse_and_validate_fit_params(fit_params)
+    plpy.info("i shape {}".format(independent_var_shape))
+    plpy.info("d shape {}".format(dependent_var_shape))
     history = segment_model.fit(x_train, y_train, **fit_params)
     image_count = len(x_train)
 
