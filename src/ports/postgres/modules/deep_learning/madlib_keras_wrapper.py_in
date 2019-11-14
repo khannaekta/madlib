@@ -57,7 +57,7 @@ def reset_cuda_env(value):
     else:
         del os.environ[CUDA_VISIBLE_DEVICES_KEY]
 
-def get_device_name_and_set_cuda_env(gpus_per_host, seg):
+def get_device_name_and_set_cuda_env_predict(gpus_per_host, seg):
     if gpus_per_host > 0:
         device_name = '/gpu:0'
         if is_platform_pg():
