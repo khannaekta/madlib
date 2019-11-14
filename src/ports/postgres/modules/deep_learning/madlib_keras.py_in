@@ -550,8 +550,6 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Fit segment model on data
     #TODO consider not doing this every time
     fit_params = parse_and_validate_fit_params(fit_params)
-    plpy.info("i shape {}".format(independent_var_shape))
-    plpy.info("d shape {}".format(dependent_var_shape))
     history = segment_model.fit(x_train, y_train, **fit_params)
     image_count = len(x_train)
 
@@ -811,7 +809,6 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
     state[1] = agg_metric
     state[2] = agg_image_count
 
-    plpy.info("state {}".format(state))
     return state
 
 def internal_keras_eval_merge(state1, state2, **kwargs):

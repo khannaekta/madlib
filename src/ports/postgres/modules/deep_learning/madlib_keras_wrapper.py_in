@@ -68,7 +68,6 @@ def get_device_name_and_set_cuda_env(use_gpus, gpus_per_seg, seg):
             else:
                 cuda_visible_dev = str(seg % gpu_count)
             set_cuda_env(cuda_visible_dev)
-            plpy.info(cuda_visible_dev)
         else:
             plpy.error("No gpus found on {}".format(seg))
     else: # cpu only
