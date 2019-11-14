@@ -25,7 +25,8 @@ from keras.models import *
 from madlib_keras import compute_loss_and_metrics
 from madlib_keras import get_initial_weights
 from madlib_keras import get_model_arch_weights
-from madlib_keras import get_segments_and_gpus
+from madlib_keras import get_gpus_per_seg
+from madlib_keras import validate_gpu_config
 from madlib_keras import get_source_summary_table_dict
 from madlib_keras_helper import *
 from madlib_keras_model_selection import ModelSelectionSchema
@@ -39,6 +40,8 @@ from utilities.utilities import add_postfix
 from utilities.utilities import rotate
 from utilities.utilities import madlib_version
 from utilities.utilities import is_platform_pg
+from utilities.utilities import get_seg_number
+from utilities.utilities import get_segments_per_host
 import json
 from collections import defaultdict
 import random
@@ -73,7 +76,7 @@ Note that this function is disabled for Postgres.
 class FitMultipleModel():
     def __init__(self, schema_madlib, source_table, model_output_table,
                  model_selection_table, num_iterations,
-                 gpus_per_host=0, validation_table=None, **kwargs):
+                 use_gpus=False, validation_table=None, **kwargs):
         # set the random seed for visit order/scheduling
         random.seed(1)
         if is_platform_pg():
@@ -136,8 +139,15 @@ class FitMultipleModel():
             self.msts_for_schedule = self.msts
         random.shuffle(self.msts_for_schedule)
         self.grand_schedule = self.generate_schedule(self.msts_for_schedule)
-        self.segments_per_host, self.gpus_per_host = get_segments_and_gpus(
-            gpus_per_host)
+
+
+        if use_gpus:
+            self.gpus_per_seg = get_gpus_per_seg(self.schema_madlib)
+            validate_gpu_config(self.source_table, self.gpus_per_seg)
+        else:
+            self.gpus_per_seg = get_seg_number()*[0]
+
+        self.segments_per_host = get_segments_per_host()
         self.create_model_output_table()
         self.weights_to_update_tbl = unique_string(desp='weights_to_update')
         self.fit_multiple_model()

@@ -34,7 +34,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit_multiple_model(
     model_output_table      VARCHAR,
     model_selection_table   VARCHAR,
     num_iterations          INTEGER,
-    gpus_per_host           INTEGER,
+    use_gpus                BOOLEAN,
     validation_table        VARCHAR
 ) RETURNS VOID AS $$
     PythonFunctionBodyOnly(`deep_learning', `madlib_keras_fit_multiple_model')
@@ -48,7 +48,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit_multiple_model(
     model_output_table      VARCHAR,
     model_selection_table   VARCHAR,
     num_iterations          INTEGER,
-    gpus_per_host           INTEGER
+    use_gpus                BOOLEAN
 ) RETURNS VOID AS $$
     SELECT MADLIB_SCHEMA.madlib_keras_fit_multiple_model($1, $2, $3, $4, $5, NULL);
 $$ LANGUAGE sql VOLATILE
@@ -66,7 +66,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition_multiple_model(
     current_seg_id             INTEGER,
     seg_ids                    INTEGER[],
     images_per_seg             INTEGER[],
-    gpus_per_host              INTEGER,
+    use_gpus                   BOOLEAN,
     segments_per_host          INTEGER,
     prev_serialized_weights    BYTEA,
     is_final_iteration         BOOLEAN
@@ -96,7 +96,7 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step_multiple_model(
     INTEGER,
     INTEGER[],
     INTEGER[],
-    INTEGER,
+    BOOLEAN,
     INTEGER,
     BYTEA,
     BOOLEAN);
@@ -111,7 +111,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.fit_step_multiple_model(
     /* current_seg_id */         INTEGER,
     /* seg_ids*/                 INTEGER[],
     /* images_per_seg*/          INTEGER[],
-    /* gpus_per_host  */         INTEGER,
+    /* use_gpus  */              BOOLEAN,
     /* segments_per_host  */     INTEGER,
     /* serialized_weights */     BYTEA,
     /* is_final_iteration */     BOOLEAN
