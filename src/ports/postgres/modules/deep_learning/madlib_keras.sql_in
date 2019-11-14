@@ -1804,7 +1804,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     independent_varname     VARCHAR,
     output_table            VARCHAR,
     pred_type               VARCHAR,
-    use_gpus                BOOLEAN,
+    gpus_per_host           INTEGER,
     mst_key                 INTEGER
 ) RETURNS VOID AS $$
     PythonFunctionBodyOnly(`deep_learning', `madlib_keras_predict')
@@ -1816,7 +1816,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
                independent_varname,
                output_table,
                pred_type,
-               use_gpus,
+               gpus_per_host,
                mst_key)
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
@@ -1828,7 +1828,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     independent_varname     VARCHAR,
     output_table            VARCHAR,
     pred_type               VARCHAR,
-    use_gpus                BOOLEAN
+    gpus_per_host           INTEGER
 ) RETURNS VOID AS $$
     SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, $6, $7, NULL);
 $$ LANGUAGE sql VOLATILE
@@ -1842,7 +1842,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     output_table            VARCHAR,
     pred_type               VARCHAR
 ) RETURNS VOID AS $$
-    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, $6, FALSE, NULL);
+    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, $6, 0, NULL);
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
@@ -1853,7 +1853,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     independent_varname     VARCHAR,
     output_table            VARCHAR
 ) RETURNS VOID AS $$
-    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, NULL, FALSE, NULL);
+    SELECT MADLIB_SCHEMA.madlib_keras_predict($1, $2, $3, $4, $5, NULL, 0, NULL);
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
@@ -1866,7 +1866,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_predict(
     current_seg_id     INTEGER,
     seg_ids            INTEGER[],
     images_per_seg     INTEGER[],
-    use_gpus      BOOLEAN,
+    gpus_per_host      INTEGER,
     gpus_per_seg  INTEGER[]
 ) RETURNS DOUBLE PRECISION[] AS $$
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_predict')
@@ -1883,7 +1883,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict_byom(
     independent_varname     VARCHAR,
     output_table            VARCHAR,
     pred_type               VARCHAR,
-    use_gpus                BOOLEAN,
+    gpus_per_host           INTEGER,
     class_values            TEXT[],
     normalizing_const       DOUBLE PRECISION
 ) RETURNS VOID AS $$
@@ -1901,7 +1901,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict_byom(
     independent_varname     VARCHAR,
     output_table            VARCHAR,
     pred_type               VARCHAR,
-    use_gpus                BOOLEAN,
+    gpus_per_host           INTEGER,
     class_values            TEXT[]
 ) RETURNS VOID AS $$
     SELECT MADLIB_SCHEMA.madlib_keras_predict_byom($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL);
@@ -1917,7 +1917,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict_byom(
     independent_varname     VARCHAR,
     output_table            VARCHAR,
     pred_type               VARCHAR,
-    use_gpus                BOOLEAN
+    gpus_per_host           INTEGER
 ) RETURNS VOID AS $$
     SELECT MADLIB_SCHEMA.madlib_keras_predict_byom($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL);
 $$ LANGUAGE sql VOLATILE
