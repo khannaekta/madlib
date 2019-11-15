@@ -1976,7 +1976,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_evaluate(
     test_table              VARCHAR,
     output_table            VARCHAR
 ) RETURNS VOID AS $$
-  SELECT MADLIB_SCHEMA.madlib_keras_evaluate($1, $2, $3, NULL, NULL);
+  SELECT MADLIB_SCHEMA.madlib_keras_evaluate($1, $2, $3, FALSE, NULL);
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 

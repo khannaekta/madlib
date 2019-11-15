@@ -153,6 +153,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         num_iterations, metrics_compute_frequency, warm_start)
     if metrics_compute_frequency is None:
         metrics_compute_frequency = num_iterations
+    use_gpus = False if use_gpus is None else use_gpus
 
     # The following two times must be recorded together.
     metrics_elapsed_start_time = time.time()
@@ -623,6 +624,7 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
 
     module_name = 'madlib_keras_evaluate'
     is_mult_model = mst_key is not None
+    use_gpus = False if use_gpus is None else use_gpus
     if test_table:
         test_summary_table = add_postfix(test_table, "_summary")
     model_summary_table = None
