@@ -723,6 +723,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
     This function will call the internal keras evaluate function to get the loss
     and accuracy of each tuple which then gets averaged to get the final result.
     """
+    use_gpus = use_gpus if use_gpus else "NULL::BOOLEAN"
     evaluate_query = plpy.prepare("""
         select ({schema_madlib}.internal_keras_evaluate(
                                             {mb_dep_var_col},
