@@ -203,8 +203,9 @@ class InputDataPreprocessorDL(object):
                 {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
                 (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                row_number() over() AS row_id
+                id AS buffer_id
             FROM {self.source_table} {order_by_clause}
+            distributed by (buffer_id)
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
         plpy_execute(scalar_mult_sql, debug=True)
 
@@ -271,7 +272,7 @@ class InputDataPreprocessorDL(object):
                         ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                     {self.schema_madlib}.agg_array_concat(
                         ARRAY[{norm_tbl}.y]) AS {y},
-                    ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id,
+                    ({norm_tbl}.buffer_id%{self.num_of_buffers})::smallint AS buffer_id,
                     count(*) AS count
                 FROM {norm_tbl}
                 GROUP BY buffer_id
