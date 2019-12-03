@@ -251,7 +251,7 @@ class InputDataPreprocessorDL(object):
                 {one_hot_dep_var_array_expr} AS y,
                 (id%{self.num_of_buffers}) AS buffer_id
             FROM {self.source_table}
-            )b JOIN dist_key_tbl d
+            )b JOIN {dist_key_tbl} d ON (b.buffer_id%{num_segments})= d.id
             distributed by (__dist_key__, buffer_id)
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
             plpy_execute(scalar_mult_sql, debug=True)
