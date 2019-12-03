@@ -241,6 +241,10 @@ class InputDataPreprocessorDL(object):
             """.format(**locals())
             plpy.execute(query)
 
+            num_segments = get_seg_number()
+            join_clause = 'JOIN {dist_key_tbl} ON (b.buffer_id%{num_segments})= {dist_key_tbl}.id'.format(**locals())
+            distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
+            dist_key_comma = dist_key + ' ,'
             scalar_mult_sql = """
             CREATE TABLE {norm_tbl} AS
             SELECT d.__dist_key__, b.*
@@ -256,10 +260,7 @@ class InputDataPreprocessorDL(object):
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
             plpy_execute(scalar_mult_sql, debug=True)
 
-            num_segments = get_seg_number()
-            join_clause = 'JOIN {dist_key_tbl} ON (b.buffer_id%{num_segments})= {dist_key_tbl}.id'.format(**locals())
-            distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
-            dist_key_comma = dist_key + ' ,'
+
         plpy.execute("ANALYZE {0}".format(norm_tbl))
         sql = """
             CREATE TABLE {self.output_table} AS
