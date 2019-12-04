@@ -246,16 +246,22 @@ class InputDataPreprocessorDL(object):
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
             scalar_mult_sql = """
-            CREATE TABLE {norm_tbl} AS
-            SELECT d.__dist_key__, b.*
-            FROM
-            (SELECT {self.schema_madlib}.array_scalar_mult(
+            CREATE TEMP TABLE scalar_mult AS
+            SELECT {self.schema_madlib}.array_scalar_mult(
                 {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
                 (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 (id%{self.num_of_buffers}) AS buffer_id
             FROM {self.source_table}
-            )b JOIN {dist_key_tbl} d ON (b.buffer_id%{num_segments})= d.id
+            distributed by (buffer_id)
+            """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+            plpy_execute(scalar_mult_sql, debug=True)
+            plpy.execute("ANALYZE scalar_mult")
+
+            scalar_mult_sql = """
+            CREATE TABLE {norm_tbl} AS
+            SELECT d.__dist_key__, b.*
+            FROM scalar_mult b JOIN {dist_key_tbl} d ON (b.buffer_id%{num_segments})= d.id
             distributed by (__dist_key__, buffer_id)
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
             plpy_execute(scalar_mult_sql, debug=True)
