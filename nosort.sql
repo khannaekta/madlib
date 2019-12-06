@@ -41,11 +41,17 @@ create table p100_numbered as select p.x, p.gp_segment_id as seg_id, start_row_i
 
 SET gp_autostats_mode=none;   -- turn off stats generation on table creation, to be more similar to the GroupAgg that's working in v116
 
-create table p100_numbered_buffer_id as select p.*, b.buffer_id from p100_numbered p join madlib_perm_series b on p.row_id::INTEGER / 382 = b.buffer_id ORDER BY buffer_id DISTRIBUTED by (buffer_id);
+--create table p100_numbered_buffer_id as select p.*, b.buffer_id from p100_numbered p join madlib_perm_series b on p.row_id::INTEGER / 382 = b.buffer_id ORDER BY buffer_id DISTRIBUTED by (buffer_id);
 -- Time:  173256.797 ms ~ 2.8 min
 
-create table p100_numbered_buffer_id as select p.*, b.buffer_id from p100_numbered p join madlib_perm_series b on p.row_id::INTEGER / 382 = b.buffer_index ORDER BY buffer_index DISTRIBUTED by (buffer_index);
+--create table p100_numbered_buffer_id as select p.*, b.buffer_id from p100_numbered p join madlib_perm_series b on p.row_id::INTEGER / 382 = b.buffer_index ORDER BY buffer_index DISTRIBUTED by (buffer_index);
 -- Time: 109.8s ~ 1 min 50s
+
+CREATE TABLE p100_numbered_buffer_id as select p.*, b.buffer_id, b.buffer_index from p100_numbered p join madlib_perm_series_distkey_buffer_index b on p.row_id::INTEGER / 382 = b.buffer_index ORDER BY buffer_index DISTRIBUTED by (dist_key);  -- Note:  evenly distributed, but buffer_id's don't match up with dist_keys since the dist_keys are based on row id's
+--Time: 97s
+
+CREATE TABLE p100_numbered_buffer_id as select p.*, b.buffer_id, b.buffer_index from p100_numbered p join madlib_perm_series_distkey_buffer_index b on p.row_id::INTEGER % 1300 = b.buffer_index ORDER BY buffer_index DISTRIBUTED by (dist_key);  -- Note:  evenly distributed, but buffer_id's don't match up with dist_keys since the dist_keys are based on row id's
+Time: 45.8s, wow!
 
 -- create table p100_numbered_buffer_id_sorted as select * from p100_numbered_buffer_id order by buffer_id distributed by (buffer_id);
 -- Time: 81.6s
@@ -57,4 +63,9 @@ SET enable_hashagg=off;
 -- create table p100_batched as select madlib.agg_array_concat(ARRAY[x]) as x, dist_key, buffer_id from p100_numbered_buffer_id group by dist_key, buffer_id distributed by (buffer_id);
 -- Time: 101.4 min
 
-create table p100_batched as select madlib.agg_array_concat(ARRAY[x]) as x, dist_key, buffer_id from p100_numbered_buffer_id group by dist_key, buffer_id distributed by (buffer_id);
+create table p100_batched as select madlib.agg_array_concat(ARRAY[x]) as x, buffer_id from p100_numbered_buffer_id group by buffer_id distributed by (buffer_id);
+Time: ?
+
+-- TODO: Add a query to attach dist_key to 2nd-to-last table by joining on buffer_id = b.buffer_id
+
+create table p100_batched as select madlib.agg_array_concat(ARRAY[x]) as x, min(dist_key) as __dist_key__, buffer_id from p100_numbered_buffer_id_with_stats group by buffer_id distributed by (__dist_key__);
