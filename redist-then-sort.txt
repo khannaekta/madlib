@@ -1,0 +1,18 @@
+explain create table p100_numbered_buffer_id as select p.*, b.buffer_id from p100_numbered p join madlib_perm_series b on p.row_id::INTEGER / 382 = b.buffer_id ORDER BY buffer_id DISTRIBUTED by (buffer_id);
+
+Sort  (cost=164864.37..166095.43 rows=24622 width=1059)
+       Sort Key: b.buffer_id
+          ->  Redistribute Motion 20:20  (slice2; segments: 20)  (cost=12399.50..118307.01 rows=24622 width=1059)
+                   Hash Key: b.buffer_id
+                            ->  Hash Join  (cost=12399.50..118307.01 rows=24622 width=1059)
+                   Hash Cond: b.buffer_id = (p.row_id::integer / 382)
+                   ->  Broadcast Motion 20:20  (slice1; segments: 20)  (cost=0.00..22120.00 rows=100000 width=4)
+                                        ->  Seq Scan on madlib_perm_series b  (cost=0.00..1120.00 rows=5000 width=4)
+                   ->  Hash  (cost=6244.22..6244.22 rows=24622 width=1055)
+                         ->  Seq Scan on p100_numbered p  (cost=0.00..6244.22 rows=24622 width=1055)
+     Settings:  enable_hashagg=off; optimizer=off
+      Optimizer status: legacy query optimizer
+
+
+
+create table p100_numbered_buffer_id as select p.x, p.y, b.dist_key, b.buffer_id, b.buffer_index from p100_numbered p join madlib_perm_series_distkey_buffer_index b on p.row_id::INTEGER % 1290 = b.buffer_index ORDER BY buffer_index DISTRIBUTED by (buffer_id);
