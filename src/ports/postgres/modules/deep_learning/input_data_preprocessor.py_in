@@ -203,7 +203,7 @@ class InputDataPreprocessorDL(object):
                 {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
                 (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                row_number() over() AS row_id
+                id AS row_id
             FROM {self.source_table} {order_by_clause}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
         plpy_execute(scalar_mult_sql, debug=True)
@@ -257,13 +257,8 @@ class InputDataPreprocessorDL(object):
             dist_key_comma = dist_key + ' ,'
 
         sql = """
-            CREATE TABLE {self.output_table} AS
-            SELECT {dist_key_comma}
-                   {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
-                   {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
-                   ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
-                   ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
-                   buffer_id
+            CREATE TABLE {self.output_table}_t1 AS
+            SELECT *
             FROM
             (
                 SELECT
@@ -276,6 +271,36 @@ class InputDataPreprocessorDL(object):
                 FROM {norm_tbl}
                 GROUP BY buffer_id
             ) b
+            """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
+                       y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
+                       FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
+                       **locals())
+        plpy_execute(sql, debug=True)
+        sql = """
+            CREATE TABLE {self.output_table}_t2 AS
+            SELECT {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
+                   {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
+                   ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
+                   ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
+                   buffer_id
+            FROM
+            {self.output_table}_t1
+            """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
+                       y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
+                       FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
+                       **locals())
+        plpy_execute(sql, debug=True)
+
+        sql = """
+            CREATE TABLE {self.output_table} AS
+            SELECT {dist_key_comma}
+                   {x} AS {x},
+                   {y} AS {y},
+                   {ind_shape_col},
+                   {dep_shape_col},
+                   buffer_id
+            FROM
+            {self.output_table}_t2 b
             {join_clause}
             {distributed_by_clause}
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
