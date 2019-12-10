@@ -204,7 +204,7 @@ class InputDataPreprocessorDL(object):
                 (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 id AS row_id
-            FROM {self.source_table} {order_by_clause}
+            FROM {self.source_table}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
         plpy_execute(scalar_mult_sql, debug=True)
 
