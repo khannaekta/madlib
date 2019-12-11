@@ -275,9 +275,9 @@ class InputDataPreprocessorDL(object):
                 SELECT
                     -- {norm_tbl}.__dist_key__ as __dist_key__,
                     ({norm_tbl}.buffer_id)::smallint AS buffer_id,
-                    {self.schema_madlib}.agg_array_concat(
+                    {self.schema_madlib}.gpdb_agg_array_concat(
                         ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                    {self.schema_madlib}.agg_array_concat(
+                    {self.schema_madlib}.gpdb_agg_array_concat(
                         ARRAY[{norm_tbl}.y]) AS {y},
                     count(*) AS count
                 FROM {norm_tbl}
@@ -288,6 +288,7 @@ class InputDataPreprocessorDL(object):
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
+
         plpy_execute(sql, debug=True)
         # plpy.execute("ANALYZE intrim_tbl")
         sql = """
