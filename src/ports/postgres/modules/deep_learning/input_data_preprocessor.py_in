@@ -246,16 +246,19 @@ class InputDataPreprocessorDL(object):
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
             scalar_mult_sql = """
-            CREATE TABLE {norm_tbl} AS
-            SELECT d.__dist_key__, b.*
+            CREATE TEMP TABLE {norm_tbl} AS
+            SELECT -- d.__dist_key__, 
+            b.*
             FROM
-            (SELECT {self.schema_madlib}.array_scalar_mult(
-                {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-                (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
+            (SELECT -- {self.schema_madlib}.array_scalar_mult(
+                {self.independent_varname}
+                -- ::{FLOAT32_SQL_TYPE}[],
+                --(1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) 
+                AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                (id%{self.num_of_buffers}) AS buffer_id
+                (id%{self.num_of_buffers}%{num_segments})::smallint AS buffer_id
             FROM {self.source_table}
-            )b JOIN {dist_key_tbl} d ON (b.buffer_id%{num_segments})= d.id
+            )b --JOIN {dist_key_tbl} d ON (b.buffer_id%{num_segments})= d.id
             -- distributed by (__dist_key__, buffer_id)
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
             plpy_execute(scalar_mult_sql, debug=True)
@@ -266,7 +269,9 @@ class InputDataPreprocessorDL(object):
             CREATE TEMP TABLE intrim_tbl AS
             SELECT -- __dist_key__,
                     buffer_id,
-                   {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
+                   {self.schema_madlib}.convert_array_to_bytea( -- {x}) AS {x},
+                   {self.schema_madlib}.array_scalar_mult({x}::{FLOAT32_SQL_TYPE}[],
+                    (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}))  AS {x},
                    {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
                    ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                    ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col}
