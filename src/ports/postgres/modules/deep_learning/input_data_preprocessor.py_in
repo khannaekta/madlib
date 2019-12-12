@@ -256,7 +256,7 @@ class InputDataPreprocessorDL(object):
                 --(1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) 
                 AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                (id%{self.num_of_buffers}%{num_segments})::smallint AS buffer_id
+                (id%{self.num_of_buffers})::smallint AS buffer_id
             FROM {self.source_table}
             )b --JOIN {dist_key_tbl} d ON (b.buffer_id%{num_segments})= d.id
             -- distributed by (__dist_key__, buffer_id)
