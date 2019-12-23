@@ -520,9 +520,9 @@ class InputDataPreprocessorDL(object):
             {dist_key_col},
             x_norm,
             y,
-            (ROW_NUMBER() OVER( PARTITION BY {dist_key_col} ))::INTEGER as slot_id,
+            (ROW_NUMBER() OVER( PARTITION BY {dist_key_col} ) - 1)::INTEGER as slot_id,
             ((start_row +
-               ROW_NUMBER() OVER( PARTITION BY {dist_key_col} )
+               (ROW_NUMBER() OVER( PARTITION BY {dist_key_col} ) - 1)
              )::INTEGER / {self.buffer_size}
             ) AS buffer_id
         FROM {norm_tbl} JOIN {start_rows_tbl}
@@ -698,7 +698,8 @@ class InputDataPreprocessorDL(object):
         buffer_size = buffer_size_calculator.calculate_default_buffer_size(
             self.buffer_size, num_rows_in_tbl, indepdent_var_dim, num_segments)
         num_buffers = num_segments * ceil((1.0 * num_rows_in_tbl) / buffer_size / num_segments)
-        return int(ceil(num_rows_in_tbl / num_buffers))
+        plpy.info("Calculated buffer_size ========= {}".format(buffer_size))
+        return buffer_size #int((num_rows_in_tbl / buffer_size))
 
 class ValidationDataPreprocessorDL(InputDataPreprocessorDL):
     def __init__(self, schema_madlib, source_table, output_table,
