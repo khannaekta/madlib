@@ -494,6 +494,7 @@ class InputDataPreprocessorDL(object):
         plpy.execute("DROP TABLE {0}".format(rows_per_seg_tbl))
 
         self.buffer_size = self._get_buffer_size(num_segments)
+        plpy.info("self.buffer_size = {}".format(self.buffer_size))
 
         # The query below assigns slot_id's to each row within
         #  a segment, computes a row_id by adding start_row for

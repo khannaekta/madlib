@@ -77,26 +77,26 @@ m4_ifdef(<!__POSTGRESQL__!>,
 )
 $$ LANGUAGE SQL;
 
-SELECT assert(COUNT(*) = num_buffers(17, 5),
+SELECT assert(COUNT(*) = divide_roundup(17, 5),
     'Incorrect number of buffers in data_preprocessor_input_batch.')
 FROM data_preprocessor_input_batch;
 
 SELECT assert(independent_var_shape[2]=6, 'Incorrect image shape ' || independent_var_shape[2])
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=1;
 
-SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=2;
 
 SELECT assert(independent_var_shape[1]=2, 'Incorrect buffer size ' || independent_var_shape[1])
-FROM data_preprocessor_input_batch WHERE buffer_id=5;
+FROM data_preprocessor_input_batch WHERE buffer_id=3;
 
-SELECT assert(octet_length(independent_var) = 72, 'Incorrect buffer length ' || octet_length(independent_var)::TEXT)
+SELECT assert(octet_length(independent_var) = 120, 'Incorrect buffer length ' || octet_length(independent_var)::TEXT)
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
 DROP TABLE IF EXISTS validation_out, validation_out_summary;
@@ -108,20 +108,20 @@ SELECT validation_preprocessor_dl(
   'data_preprocessor_input_batch',
   5);
 
-SELECT assert(COUNT(*) = num_buffers(17, 5),
+SELECT assert(COUNT(*) = divide_roundup(17, 5),
     'Incorrect number of buffers in validation_out.')
 FROM validation_out;
 
 SELECT assert(independent_var_shape[2]=6, 'Incorrect image shape.')
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size.')
+SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size.')
 FROM data_preprocessor_input_batch WHERE buffer_id=1;
 
 SELECT assert(independent_var_shape[1]=2, 'Incorrect buffer size.')
-FROM data_preprocessor_input_batch WHERE buffer_id=5;
+FROM data_preprocessor_input_batch WHERE buffer_id=3;
 
-SELECT assert(octet_length(independent_var) = 72, 'Incorrect buffer length')
+SELECT assert(octet_length(independent_var) = 120, 'Incorrect buffer length')
 FROM validation_out WHERE buffer_id=0;
 
 DROP TABLE IF EXISTS data_preprocessor_input_batch, data_preprocessor_input_batch_summary;
