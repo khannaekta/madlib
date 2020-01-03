@@ -237,7 +237,7 @@ INSERT INTO mst_table SELECT 4 AS mst_key, model_id, compile_params,
 INSERT INTO mst_table SELECT 5 AS mst_key, model_id, compile_params,
     'batch_size=18, epochs=1' FROM mst_table WHERE mst_key = 1;
 
-SELECT assert(trap_error($TRAP$madlib_keras_fit_multiple_model(
+SELECT assert(trap_error($TRAP$SELECT madlib_keras_fit_multiple_model(
   'iris_data_packed',
   'iris_multiple_model',
   'mst_table',
