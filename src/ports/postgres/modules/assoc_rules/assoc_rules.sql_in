@@ -524,8 +524,6 @@ CREATE TYPE MADLIB_SCHEMA.assoc_rules_results AS
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.gen_rules_from_cfp
     (
     TEXT,
-    INT,
-    INT,
     INT
     )
 RETURNS SETOF TEXT[] AS 'MODULE_PATHNAME'
