@@ -169,10 +169,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             model_id)
         sql = """
             CREATE TABLE {weights_table} AS
-                SELECT {unnest_comma}
-                (SELECT {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, {model_wt_col}, {warm_start}) 
-                 FROM {model_arch_table} WHERE {model_id_col} = {model_id} 
+                SELECT {unnest_comma} 
+                ({schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, {model_wt_col}, FALSE) 
                 )AS model_weights
+                FROM {model_arch_table} WHERE {model_id_col} = {model_id} 
             {dist_by_clause}
         """.format(model_wt_col=ModelArchSchema.MODEL_WEIGHTS,
                    model_id_col=ModelArchSchema.MODEL_ID,
@@ -181,9 +181,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         sql = """
             CREATE TABLE {weights_table} AS
                 SELECT {unnest_comma}
-                {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start}) AS model_weights
+                (SELECT w from {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start}) t(w)) AS model_weights
             {dist_by_clause}
         """.format(**locals())
+    plpy.info(sql)
     # plan = plpy.prepare(sql, ['BYTEA'])
     plpy.execute(sql)#, [serialized_weights])
 
@@ -370,7 +371,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     create_output_table = plpy.prepare("""
         CREATE TABLE {0} AS SELECT
         model_weights,
-        $1 as {1} FROM {2}""".format(model, ModelArchSchema.MODEL_ARCH, weights_table), ["json"])
+        $1 as {1} FROM {2} LIMIT 1""".format(model, ModelArchSchema.MODEL_ARCH, weights_table), ["json"])
     plpy.execute(create_output_table, [model_arch])
     plpy.execute("DROP TABLE {0}".format(weights_table))
 

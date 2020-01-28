@@ -217,14 +217,28 @@ class FitMultipleModel():
             images_per_seg = self.images_per_seg_valid
             self.info_str += "\n\tValidation set after iteration {0}:".format(epoch)
         for mst in self.msts:
-            weights = query_weights(self.model_output_table, self.model_weights_col,
-                self.mst_key_col, mst[self.mst_key_col])
+            # weights_tbl_name = query_weights(self.model_output_table, self.model_weights_col,
+            #     self.mst_key_col, mst[self.mst_key_col])
+            weights_table = unique_string(desp='weights')
+            unnest_comma = 'unnest(ARRAY{0}) AS {1},'.format(self.dist_key_mapping, DISTRIBUTION_KEY_COLNAME)
+            mlp_weights_query = """
+                                CREATE TABLE {weights_table} AS
+                                SELECT {unnest_comma}
+                                    {self.model_weights_col} model_weights
+                                FROM {self.model_output_table}
+                                WHERE {self.mst_key_col} = {mst_key}
+                                """.format(self=self,
+                                           weights_table=weights_table,
+                                           mst_key=mst[self.mst_key_col],
+                                           unnest_comma=unnest_comma)
+
+            plpy.execute(mlp_weights_query)
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
                     mst[self.compile_params_col]),
                 model_arch,
-                weights,
+                weights_table,
                 self.use_gpus,
                 self.accessible_gpus_for_seg,
                 seg_ids,
