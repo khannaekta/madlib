@@ -163,35 +163,37 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # creating a weights table which is the JOINed with the fit_step UDA.
     weights_table = unique_string(desp='weights')
     sql = """
-        CREATE TEMP TABLE {weights_table} AS
-            SELECT {unnest_comma} $1 AS weights
+        CREATE TABLE {weights_table} AS
+            SELECT {unnest_comma}
+            {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start}) AS model_weights
         {dist_by_clause}
     """.format(**locals())
-    plan = plpy.prepare(sql, ['BYTEA'])
-    plpy.execute(plan, [serialized_weights])
+    # plan = plpy.prepare(sql, ['BYTEA'])
+    plpy.execute(sql)#, [serialized_weights])
 
     # Prepare the SQL for running distributed training via UDA
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
     run_training_iteration = plpy.prepare("""
+        CREATE TABLE updated_{weights_table} AS
         SELECT {schema_madlib}.fit_step(
-            {mb_dep_var_col},
-            {mb_indep_var_col},
-            {dep_shape_col},
-            {ind_shape_col},
-            $MAD${model_arch}$MAD$::TEXT,
-            {compile_params_to_pass}::TEXT,
-            {fit_params_to_pass}::TEXT,
-            {dist_key_col},
-            ARRAY{dist_key_mapping},
-            {gp_segment_id_col},
-            {segments_per_host},
-            ARRAY{images_per_seg_train},
-            {use_gpus}::BOOLEAN,
-            ARRAY{accessible_gpus_for_seg},
-            w.weights,
-            $1
-        ) AS iteration_result
+                {mb_dep_var_col},
+                {mb_indep_var_col},
+                {dep_shape_col},
+                {ind_shape_col},
+                $MAD${model_arch}$MAD$::TEXT,
+                {compile_params_to_pass}::TEXT,
+                {fit_params_to_pass}::TEXT,
+                {dist_key_col},
+                ARRAY{dist_key_mapping},
+                {gp_segment_id_col},
+                {segments_per_host},
+                ARRAY{images_per_seg_train},
+                {use_gpus}::BOOLEAN,
+                ARRAY{accessible_gpus_for_seg},
+                w.model_weights,
+                $1
+            ) AS model_weights
         FROM {source_table} src
         JOIN {weights_table} w {join_cond}
         """.format(**locals()), ["boolean"])
@@ -207,9 +209,16 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
-        serialized_weights = plpy.execute(run_training_iteration,
-                                          [is_final_iteration]
-                                         )[0]['iteration_result']
+        plpy.execute("DROP TABLE IF EXISTS updated_{0}".format(weights_table))
+        plpy.execute(run_training_iteration,[is_final_iteration])
+        plpy.execute("DROP TABLE IF EXISTS {0}".format(weights_table))
+        sql = """
+            CREATE TABLE {weights_table} AS
+                SELECT {unnest_comma} 
+                {schema_madlib}.get_initial_weights($$updated_{weights_table}$$, $MAD${model_arch}$MAD$::TEXT, NULL, TRUE) AS model_weights
+            {dist_by_clause}
+        """.format(**locals())
+        plpy.execute(sql)
  
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
@@ -220,7 +229,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             # Compute loss/accuracy for training data.
             compute_out = compute_loss_and_metrics(
                 schema_madlib, source_table, compile_params_to_pass, model_arch,
-                serialized_weights, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
+                weights_table, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
                 images_per_seg_train, training_metrics, training_loss, i, is_final_iteration)
             metrics_iters.append(i)
             compute_time, compute_metrics, compute_loss = compute_out
@@ -236,7 +245,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                 # Compute loss/accuracy for validation data.
                 val_compute_out = compute_loss_and_metrics(
                     schema_madlib, validation_table, compile_params_to_pass,
-                    model_arch, serialized_weights, use_gpus, accessible_gpus_for_seg,
+                    model_arch, weights_table, use_gpus, accessible_gpus_for_seg,
                     seg_ids_val, images_per_seg_val, validation_metrics,
                     validation_loss, i, is_final_iteration)
                 val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
@@ -253,8 +262,6 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                 metrics_elapsed_end_time-metrics_elapsed_start_time)
         plpy.info("\n"+info_str)
     end_training_time = datetime.datetime.now()
-
-    plpy.execute("DROP TABLE {0}".format(weights_table))
 
     version = madlib_version(schema_madlib)
     src_summary_dict = get_source_summary_table_dict(fit_validator)
@@ -346,9 +353,11 @@ def fit(schema_madlib, source_table, model, model_arch_table,
 
     create_output_table = plpy.prepare("""
         CREATE TABLE {0} AS SELECT
-        $1 as model_weights,
-        $2 as {1}""".format(model, ModelArchSchema.MODEL_ARCH), ["bytea", "json"])
-    plpy.execute(create_output_table, [serialized_weights, model_arch])
+        model_weights,
+        $1 as {1} FROM {2}""".format(model, ModelArchSchema.MODEL_ARCH, weights_table), ["json"])
+    plpy.execute(create_output_table, [model_arch])
+    plpy.execute("DROP TABLE {0}".format(weights_table))
+
 
     #TODO add a unit test for this in a future PR
     reset_cuda_env(original_cuda_env)
@@ -417,7 +426,7 @@ def get_metrics_sql_string(metrics_list, is_metrics_specified):
     return metrics_final, metrics_all
 
 def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
-                             serialized_weights, use_gpus, accessible_gpus_for_seg,
+                             weights_table, use_gpus, accessible_gpus_for_seg,
                              dist_key_mapping, images_per_seg_val, metrics_list, loss_list,
                              curr_iter, is_final_iteration):
     """
@@ -429,7 +438,7 @@ def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                                                    table,
                                                    compile_params,
                                                    model_arch,
-                                                   serialized_weights,
+                                                   weights_table,
                                                    use_gpus,
                                                    accessible_gpus_for_seg,
                                                    dist_key_mapping,
@@ -634,11 +643,25 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
     compile_params = "$madlib$" + res['compile_params'] + "$madlib$"
 
     dist_key_mapping, images_per_seg = get_image_count_per_seg_for_minibatched_data_from_db(test_table)
+    weights_table = unique_string(desp='weights')
+    if is_platform_pg:
+        dist_by_clause = ''
+        unnest_comma = ''
+    else:
+        dist_by_clause = 'DISTRIBUTED BY ({0})'.format(DISTRIBUTION_KEY_COLNAME)
+        unnest_comma = 'unnest(ARRAY{0}) AS {1},'.format(dist_key_mapping, DISTRIBUTION_KEY_COLNAME)
+    sql = """
+        CREATE TABLE {weights_table} AS
+            SELECT {unnest_comma}
+            {schema_madlib}.get_initial_weights($${model_table}$$, NULL, NULL, TRUE) AS model_weights
+        {dist_by_clause}
+    """.format(**locals())
+    plpy.execute(sql)
 
     loss, metric = \
         get_loss_metric_from_keras_eval(
             schema_madlib, test_table, compile_params, model_arch,
-            model_weights, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
+            weights_table, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
             images_per_seg)
 
     if not metrics_type:
@@ -677,12 +700,16 @@ def validate_evaluate(module_name, model_table, model_summary_table, test_table,
                                      MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL)
 
 def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
-                                    model_arch, serialized_weights, use_gpus,
+                                    model_arch, weights_table, use_gpus,
                                     accessible_gpus_for_seg, dist_key_mapping, images_per_seg,
                                     is_final_iteration=True):
 
-    dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
-    gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
+    dist_key_col = '0' if is_platform_pg() else "src.{0}".format(DISTRIBUTION_KEY_COLNAME)
+    gp_segment_id_col = '0' if is_platform_pg() else "src.{0}".format(GP_SEGMENT_ID_COLNAME)
+    if is_platform_pg():
+        join_cond = 'ON TRUE'
+    else:
+        join_cond = 'USING({0})'.format(DISTRIBUTION_KEY_COLNAME)
     segments_per_host = get_segments_per_host()
 
     mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
@@ -704,7 +731,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             {dep_shape_col},
                                             {ind_shape_col},
                                             $MAD${model_arch}$MAD$,
-                                            $1,
+                                            w.model_weights,
                                             {compile_params},
                                             {dist_key_col},
                                             ARRAY{dist_key_mapping},
@@ -715,9 +742,10 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             ARRAY{accessible_gpus_for_seg},
                                             {is_final_iteration}
                                             )) as loss_metric
-        from {table}
-        """.format(**locals()), ["bytea"])
-    res = plpy.execute(evaluate_query, [serialized_weights])
+        FROM {table} src
+        JOIN {weights_table} w {join_cond}
+        """.format(**locals()))
+    res = plpy.execute(evaluate_query)
     loss_metric = res[0]['loss_metric']
     return loss_metric
 
