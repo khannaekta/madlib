@@ -373,7 +373,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         model_weights,
         $1 as {1} FROM {2} LIMIT 1""".format(model, ModelArchSchema.MODEL_ARCH, weights_table), ["json"])
     plpy.execute(create_output_table, [model_arch])
-    plpy.execute("DROP TABLE {0}".format(weights_table))
+    plpy.execute("DROP TABLE IF EXISTS {0}, updated_{0}".format(weights_table))
 
 
     #TODO add a unit test for this in a future PR
@@ -661,7 +661,7 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
 
     dist_key_mapping, images_per_seg = get_image_count_per_seg_for_minibatched_data_from_db(test_table)
     weights_table = unique_string(desp='weights')
-    if is_platform_pg:
+    if is_platform_pg():
         dist_by_clause = ''
         unnest_comma = ''
     else:
