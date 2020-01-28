@@ -373,16 +373,33 @@ class FitMultipleModel():
                 # the 1GB limit when dispatching the query plan to segments.
                 # Always passing in model_table, weights as NULL and warm_start
                 # as False so as to get initial weights from model_arch
-                output_table_insert_query = """
+                if model_weights:
+                    output_table_insert_query = """
                                     INSERT INTO {self.model_output_table}(
                                         {self.mst_key_col}, {self.model_weights_col},
                                         {self.model_arch_col})
-                                    SELECT {mst_key},
-                                        {self.schema_madlib}.get_initial_weights(NULL::TEXT, $${model_arch}$$::TEXT, NULL, FALSE),
+                                        SELECT {mst_key},
+                                        (SELECT {self.schema_madlib}.get_initial_weights(NULL::TEXT, $MAD${model_arch}$MAD$::TEXT, {model_wt_col}, FALSE) 
+                                         FROM {self.model_arch_table} WHERE {model_id_col} = {model_id} 
+                                        ),
                                         $1
                                        """.format(self=self,
                                                   mst_key=mst[self.mst_key_col],
-                                                  model_arch=model_arch)
+                                                  model_arch=model_arch,
+                                                  model_wt_col=ModelArchSchema.MODEL_WEIGHTS,
+                                                  model_id_col=ModelArchSchema.MODEL_ID,
+                                                  model_id=mst[self.model_id_col])
+                else:
+                    output_table_insert_query = """
+                                        INSERT INTO {self.model_output_table}(
+                                            {self.mst_key_col}, {self.model_weights_col},
+                                            {self.model_arch_col})
+                                        SELECT {mst_key},
+                                            {self.schema_madlib}.get_initial_weights(NULL::TEXT, $${model_arch}$$::TEXT, NULL, FALSE),
+                                            $1
+                                           """.format(self=self,
+                                                      mst_key=mst[self.mst_key_col],
+                                                      model_arch=model_arch)
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["json"])
                 plpy.execute(output_table_insert_query_prepared, [model_arch])

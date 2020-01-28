@@ -162,12 +162,28 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # To avoid passing the weights as a constant value folded in the plan,
     # creating a weights table which is the JOINed with the fit_step UDA.
     weights_table = unique_string(desp='weights')
-    sql = """
-        CREATE TABLE {weights_table} AS
-            SELECT {unnest_comma}
-            {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start}) AS model_weights
-        {dist_by_clause}
-    """.format(**locals())
+    if model_weights:
+        model_arch_query = "SELECT {0}, {1} FROM {2} WHERE {3} = {4}".format(
+            ModelArchSchema.MODEL_ARCH, ModelArchSchema.MODEL_WEIGHTS,
+            model_arch_table, ModelArchSchema.MODEL_ID,
+            model_id)
+        sql = """
+            CREATE TABLE {weights_table} AS
+                SELECT {unnest_comma}
+                (SELECT {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, {model_wt_col}, {warm_start}) 
+                 FROM {model_arch_table} WHERE {model_id_col} = {model_id} 
+                )AS model_weights
+            {dist_by_clause}
+        """.format(model_wt_col=ModelArchSchema.MODEL_WEIGHTS,
+                   model_id_col=ModelArchSchema.MODEL_ID,
+                   **locals())
+    else:
+        sql = """
+            CREATE TABLE {weights_table} AS
+                SELECT {unnest_comma}
+                {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start}) AS model_weights
+            {dist_by_clause}
+        """.format(**locals())
     # plan = plpy.prepare(sql, ['BYTEA'])
     plpy.execute(sql)#, [serialized_weights])
 
