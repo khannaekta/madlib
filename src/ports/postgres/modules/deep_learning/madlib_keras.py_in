@@ -133,17 +133,23 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     if is_platform_pg():
         get_device_name_and_set_cuda_env(accessible_gpus_for_seg[0], None)
         dist_key_col = '0'
+        create_dist_key_comma = ''
+        dist_key_comma = ''
         dist_by_clause = ''
         gp_segment_id_col = '0'
         unnest_comma = ''
         join_cond = 'ON TRUE'
+        group_by = ''
     else:
         get_device_name_and_set_cuda_env(0, None)
         dist_key_col = 'src.{0}'.format(DISTRIBUTION_KEY_COLNAME)
+        create_dist_key_comma = '{0} INTEGER,'.format(DISTRIBUTION_KEY_COLNAME)
+        dist_key_comma = '{0},'.format(DISTRIBUTION_KEY_COLNAME)
         dist_by_clause = 'DISTRIBUTED BY ({0})'.format(DISTRIBUTION_KEY_COLNAME)
         gp_segment_id_col = 'src.{0}'.format(GP_SEGMENT_ID_COLNAME)
         unnest_comma = 'unnest(ARRAY{0}) AS {1},'.format(dist_key_mapping, DISTRIBUTION_KEY_COLNAME)
         join_cond = 'USING({0})'.format(DISTRIBUTION_KEY_COLNAME)
+        group_by = 'GROUP BY {0}'.format(DISTRIBUTION_KEY_COLNAME)
 
     serialized_weights = get_initial_weights(model, model_arch, model_weights, warm_start)
 
@@ -154,7 +160,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     validation_set_provided = bool(validation_table)
     validation_metrics = []; validation_loss = []
 
-    # For >=GPDB6/PG9 versions, previously, when the fit_step UDA was called
+    # For >=GPDB6, previously, when the fit_step UDA was called
     # with the initial weights value passed in, the query plan for it would
     # have the weights embedded inside the plan itself. This meant that the query
     # plan size would also include the size of these weights, bloating it up to
@@ -162,11 +168,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # To avoid passing the weights as a constant value folded in the plan,
     # creating a weights table which is the JOINed with the fit_step UDA.
     weights_table = unique_string(desp='weights')
+    updated_weights_table = unique_string(desp='updated_weights')
     if model_weights:
-        model_arch_query = "SELECT {0}, {1} FROM {2} WHERE {3} = {4}".format(
-            ModelArchSchema.MODEL_ARCH, ModelArchSchema.MODEL_WEIGHTS,
-            model_arch_table, ModelArchSchema.MODEL_ID,
-            model_id)
         sql = """
             CREATE TABLE {weights_table} AS
                 SELECT {unnest_comma} 
@@ -181,39 +184,21 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         sql = """
             CREATE TABLE {weights_table} AS
                 SELECT {unnest_comma}
-                (SELECT w from {schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start}) t(w)) AS model_weights
+                ({schema_madlib}.get_initial_weights($${model}$$, $MAD${model_arch}$MAD$::TEXT, NULL, {warm_start})
+                ) AS model_weights
             {dist_by_clause}
         """.format(**locals())
-    plpy.info(sql)
-    # plan = plpy.prepare(sql, ['BYTEA'])
-    plpy.execute(sql)#, [serialized_weights])
+    plpy.execute(sql)
+    sql = """
+            CREATE TABLE {updated_weights_table}
+                ({create_dist_key_comma} model_weights BYTEA)
+            {dist_by_clause}
+        """.format(dist_key=DISTRIBUTION_KEY_COLNAME,**locals())
+    plpy.execute(sql)
 
     # Prepare the SQL for running distributed training via UDA
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
-    run_training_iteration = plpy.prepare("""
-        CREATE TABLE updated_{weights_table} AS
-        SELECT {schema_madlib}.fit_step(
-                {mb_dep_var_col},
-                {mb_indep_var_col},
-                {dep_shape_col},
-                {ind_shape_col},
-                $MAD${model_arch}$MAD$::TEXT,
-                {compile_params_to_pass}::TEXT,
-                {fit_params_to_pass}::TEXT,
-                {dist_key_col},
-                ARRAY{dist_key_mapping},
-                {gp_segment_id_col},
-                {segments_per_host},
-                ARRAY{images_per_seg_train},
-                {use_gpus}::BOOLEAN,
-                ARRAY{accessible_gpus_for_seg},
-                w.model_weights,
-                $1
-            ) AS model_weights
-        FROM {source_table} src
-        JOIN {weights_table} w {join_cond}
-        """.format(**locals()), ["boolean"])
 
     # Define the state for the model and loss/metric storage lists
     training_loss, training_metrics, metrics_elapsed_time = [], [], []
@@ -226,14 +211,38 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
-        plpy.execute("DROP TABLE IF EXISTS updated_{0}".format(weights_table))
-        plpy.execute(run_training_iteration,[is_final_iteration])
-        plpy.execute("DROP TABLE IF EXISTS {0}".format(weights_table))
+        run_training_iteration = """
+            TRUNCATE TABLE {updated_weights_table};
+            INSERT INTO {updated_weights_table}
+                SELECT {dist_key_comma}
+                    {schema_madlib}.fit_step(
+                        {mb_dep_var_col},
+                        {mb_indep_var_col},
+                        {dep_shape_col},
+                        {ind_shape_col},
+                        $MAD${model_arch}$MAD$::TEXT,
+                        {compile_params_to_pass}::TEXT,
+                        {fit_params_to_pass}::TEXT,
+                        {dist_key_col},
+                        ARRAY{dist_key_mapping},
+                        {gp_segment_id_col},
+                        {segments_per_host},
+                        ARRAY{images_per_seg_train},
+                        {use_gpus}::BOOLEAN,
+                        ARRAY{accessible_gpus_for_seg},
+                        w.model_weights,
+                        {is_final_iteration}
+                    ) AS model_weights
+                FROM {source_table} src
+            JOIN {weights_table} w {join_cond}
+            {group_by}
+        """.format(**locals())
+        plpy.execute(run_training_iteration)
         sql = """
-            CREATE TABLE {weights_table} AS
+            TRUNCATE TABLE {weights_table};
+            INSERT INTO {weights_table}
                 SELECT {unnest_comma} 
-                {schema_madlib}.get_initial_weights($$updated_{weights_table}$$, $MAD${model_arch}$MAD$::TEXT, NULL, TRUE) AS model_weights
-            {dist_by_clause}
+                {schema_madlib}.get_initial_weights($${updated_weights_table}$$, $MAD${model_arch}$MAD$::TEXT, NULL, TRUE) AS model_weights
         """.format(**locals())
         plpy.execute(sql)
  
@@ -246,7 +255,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             # Compute loss/accuracy for training data.
             compute_out = compute_loss_and_metrics(
                 schema_madlib, source_table, compile_params_to_pass, model_arch,
-                weights_table, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
+                updated_weights_table, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
                 images_per_seg_train, training_metrics, training_loss, i, is_final_iteration)
             metrics_iters.append(i)
             compute_time, compute_metrics, compute_loss = compute_out
@@ -262,7 +271,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                 # Compute loss/accuracy for validation data.
                 val_compute_out = compute_loss_and_metrics(
                     schema_madlib, validation_table, compile_params_to_pass,
-                    model_arch, weights_table, use_gpus, accessible_gpus_for_seg,
+                    model_arch, updated_weights_table, use_gpus, accessible_gpus_for_seg,
                     seg_ids_val, images_per_seg_val, validation_metrics,
                     validation_loss, i, is_final_iteration)
                 val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
@@ -371,9 +380,9 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     create_output_table = plpy.prepare("""
         CREATE TABLE {0} AS SELECT
         model_weights,
-        $1 as {1} FROM {2} LIMIT 1""".format(model, ModelArchSchema.MODEL_ARCH, weights_table), ["json"])
+        $1 as {1} FROM {2} LIMIT 1""".format(model, ModelArchSchema.MODEL_ARCH, updated_weights_table), ["json"])
     plpy.execute(create_output_table, [model_arch])
-    plpy.execute("DROP TABLE IF EXISTS {0}, updated_{0}".format(weights_table))
+    plpy.execute("DROP TABLE IF EXISTS {0}, {1}".format(weights_table, updated_weights_table))
 
 
     #TODO add a unit test for this in a future PR
