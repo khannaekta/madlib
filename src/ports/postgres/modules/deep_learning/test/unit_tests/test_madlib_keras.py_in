@@ -1700,7 +1700,7 @@ class MadlibKerasEvaluationTestCase(unittest.TestCase):
         self.assertEqual(result, None)
 
     def test_internal_keras_eval_final_image_count_zero(self):
-        input_state = [0, 0, 0]
+        input_state = [1, 1, 0]
 
         with self.assertRaises(plpy.PLPYException):
             result = self.subject.internal_keras_eval_final(input_state)

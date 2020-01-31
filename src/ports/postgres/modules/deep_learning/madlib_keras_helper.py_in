@@ -19,6 +19,7 @@
 
 import numpy as np
 from model_arch_info import ModelArchSchema
+from utilities.utilities import __mad_version
 from utilities.utilities import add_postfix
 from utilities.utilities import unique_string
 from utilities.utilities import is_platform_pg
@@ -314,3 +315,7 @@ def get_accessible_gpus_for_seg(schema_madlib, segments_per_host, module_name):
                     'recommended configuration is to have 1 GPU available per segment.')
                 warning_flag = False
         return accessible_gpus_for_seg
+
+def is_platform_gp6():
+    version_wrapper = __mad_version()
+    return version_wrapper.is_gp_version_less_than('6.0')
