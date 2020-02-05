@@ -306,7 +306,7 @@ class FitMultipleModel():
              output_table_insert_query, ["int", "bytea", "json"])
 
         ## prepare generic plan for GPDB6 insert query
-        if not is_platform_pg() and is_platform_gp6():
+        if is_platform_gp6():
             for i in range(1, 6):
                 plpy.execute(output_table_insert_query_prepared, [0, 'DUMMY', '{"a": "DUMMY"}'])
                 plpy.execute("""

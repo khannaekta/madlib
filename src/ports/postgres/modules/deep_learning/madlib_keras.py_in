@@ -324,7 +324,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         FROM (VALUES($1, $2))t(model_weights, {1})
         """.format(model, ModelArchSchema.MODEL_ARCH), ["bytea", "json"])
     ## prepare generic plan for GPDB6 insert query
-    if not is_platform_pg() and is_platform_gp6():
+    if is_platform_gp6():
         for i in range(1, 6):
             plpy.execute(insert_output_table, ['DUMMY', '{"a": "DUMMY"}'])
             plpy.execute("TRUNCATE TABLE {0}".format(model))

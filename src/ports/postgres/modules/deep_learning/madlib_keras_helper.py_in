@@ -318,7 +318,7 @@ def get_accessible_gpus_for_seg(schema_madlib, segments_per_host, module_name):
 
 def is_platform_gp6():
     version_wrapper = __mad_version()
-    return not version_wrapper.is_gp_version_less_than('6.0')
+    return not is_platform_pg() and not version_wrapper.is_gp_version_less_than('6.0')
 
 def prepare_generic_plan(query_plan, query_params):
     # For >=GPDB6, previously, when the queries called with the
@@ -332,8 +332,8 @@ def prepare_generic_plan(query_plan, query_params):
     # it uses a generic plan(not constant folding the passed in params) for all
     # the subsequent executions.
     # Therefore, to avoid GPDB6 from creating custom plans when passing in
-    # weights, the UDA query is executed passing in DUMMY weights for 5
+    # weights, the query is executed passing in DUMMY weights for 5
     # time, prior to calling it with the actual weights.
-    if not is_platform_pg() and is_platform_gp6():
+    if is_platform_gp6():
         for i in range(1, 6):
             plpy.execute(query_plan, query_params)
