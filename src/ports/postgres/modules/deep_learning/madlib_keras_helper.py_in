@@ -54,6 +54,8 @@ SMALLINT_SQL_TYPE = 'SMALLINT'
 DEFAULT_NORMALIZING_CONST = 1.0
 GP_SEGMENT_ID_COLNAME = "gp_segment_id"
 INTERNAL_GPU_CONFIG = '__internal_gpu_config__'
+DUMMY_WEIGHTS = 'DUMMY'
+DUMMY_JSON = '{"a": "DUMMY"}'
 
 #####################################################################
 
