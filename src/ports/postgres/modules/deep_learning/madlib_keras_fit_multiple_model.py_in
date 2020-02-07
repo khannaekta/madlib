@@ -511,7 +511,7 @@ class FitMultipleModel():
         plpy.execute(mst_weights_query)
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
-            CREATE TABLE {self.weights_to_update_tbl} AS
+            -- CREATE TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                 {mb_indep_var_col},
                 {self.dep_shape_col},
@@ -535,7 +535,7 @@ class FitMultipleModel():
                 USING ({dist_key_col})
             WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
             GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
-            DISTRIBUTED BY({dist_key_col})
+            -- DISTRIBUTED BY({dist_key_col})
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
                        is_final_iteration=True,
@@ -543,15 +543,24 @@ class FitMultipleModel():
                        use_gpus=use_gpus,
                        self=self
                        )
-        plpy.execute(uda_query)
+        weights = plpy.execute(uda_query)["{self.model_weights_col}".format(self=self)]
 
-        update_query = """
-            UPDATE {self.model_output_table}
-            SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
-            FROM {self.weights_to_update_tbl}
-            WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
-        """.format(self=self)
-        plpy.execute(update_query)
+        # update_query = """
+        #     UPDATE {self.model_output_table}
+        #     SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
+        #     FROM {self.weights_to_update_tbl}
+        #     WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
+        # """.format(self=self)
+        # plpy.execute(update_query)
+        for w in weights:
+            update_query = plpy.prepare("""
+                UPDATE {self.model_output_table}
+                SET {self.model_weights_col} = $1 
+                WHERE {self.mst_key_col} = {mst_key}
+            """.format(self=self,
+                       mst_key=w[self.mst_key_col]),
+                       ['bytea'])
+            plpy.execute(update_query)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(
                                                         self.mst_weights_tbl,
                                                         self.mst_current_schedule_tbl,
