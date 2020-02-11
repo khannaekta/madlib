@@ -115,6 +115,7 @@ class FitMultipleModel():
         self.ind_shape_col = add_postfix(mb_indep_var_col, "_shape")
         self.use_gpus = use_gpus
         self.segments_per_host = get_segments_per_host()
+        self.weights = defaultdict(list)
         if self.use_gpus:
             self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(self.schema_madlib,
                 self.segments_per_host, self.module_name)
@@ -377,8 +378,18 @@ class FitMultipleModel():
             plpy.execute(info_table_insert_query)
 
             if not mst['mst_key'] in warm_start_msts:
+                output_table_insert_query = """
+                                    INSERT INTO {self.model_output_table}(
+                                        {self.mst_key_col}, {self.model_weights_col},
+                                        {self.model_arch_col})
+                                    VALUES ({mst_key}, $1, $2)
+                                       """.format(self=self,
+                                                  mst_key=mst[self.mst_key_col])
+                self.weights[mst[self.mst_key_col]] = serialized_weights
+                output_table_insert_query_prepared = plpy.prepare(
+                    output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
-                    mst[self.mst_key_col], serialized_weights, model_arch])
+                    serialized_weights, model_arch])
 
     def create_model_summary_table(self):
         if self.warm_start:
@@ -495,20 +506,34 @@ class FitMultipleModel():
         # Therefore we want to have queries that do not add motions and all the
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
-        mst_weights_query = """
-            CREATE TABLE {self.mst_weights_tbl} AS
-                SELECT mst_tbl.*, wgh_tbl.{self.model_weights_col},
-                       model_arch_tbl.{self.model_arch_col}
-                FROM
-                    {self.mst_current_schedule_tbl} mst_tbl
-                    LEFT JOIN {self.model_output_table} wgh_tbl
-                    ON mst_tbl.{self.mst_key_col} = wgh_tbl.{self.mst_key_col}
-                        LEFT JOIN {self.model_arch_table} model_arch_tbl
-                        ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
-                DISTRIBUTED BY ({dist_key_col})
-        """.format(dist_key_col=dist_key_col,
-                   **locals())
-        plpy.execute(mst_weights_query)
+        if self.weights:
+            mst_weights_query = """
+                    CREATE TABLE {self.mst_weights_tbl}
+                        ({self.model_id_col} INTEGER,
+                                 {self.compile_params_col} VARCHAR,
+                                 {self.fit_params_col} VARCHAR,
+                                 {dist_key_col} INTEGER,
+                                 {self.mst_key_col} INTEGER,
+                                 {self.model_weights_col} BYTEA,
+                                 {self.model_arch_col} JSON)
+                        DISTRIBUTED BY ({dist_key_col})
+                """.format(dist_key_col=dist_key_col,
+                           **locals())
+            plpy.execute(mst_weights_query)
+            for mstkey, w in self.weights.items():
+                mst_weights_query = plpy.prepare("""
+                    INSERT INTO {self.mst_weights_tbl}
+                        SELECT mst_tbl.*, $1,
+                               model_arch_tbl.{self.model_arch_col}
+                        FROM
+                            {self.mst_current_schedule_tbl} mst_tbl
+                                LEFT JOIN {self.model_arch_table} model_arch_tbl
+                                ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
+                    WHERE {self.mst_key_col} = {mstkey} 
+                        --DISTRIBUTED BY ({dist_key_col})
+                """.format(dist_key_col=dist_key_col,
+                           **locals()),['bytea'])
+                plpy.execute(mst_weights_query, [w])
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
             -- CREATE TABLE {self.weights_to_update_tbl} AS
@@ -543,8 +568,9 @@ class FitMultipleModel():
                        use_gpus=use_gpus,
                        self=self
                        )
-        weights = plpy.execute(uda_query)["{self.model_weights_col}".format(self=self)]
-
+        res = plpy.execute(uda_query)
+        for r in res:
+            self.weights[r["{self.mst_key_col}".format(self=self)]] = r["{self.model_weights_col}".format(self=self)]
         # update_query = """
         #     UPDATE {self.model_output_table}
         #     SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
@@ -552,15 +578,15 @@ class FitMultipleModel():
         #     WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
         # """.format(self=self)
         # plpy.execute(update_query)
-        for w in weights:
-            update_query = plpy.prepare("""
-                UPDATE {self.model_output_table}
-                SET {self.model_weights_col} = $1 
-                WHERE {self.mst_key_col} = {mst_key}
-            """.format(self=self,
-                       mst_key=w[self.mst_key_col]),
-                       ['bytea'])
-            plpy.execute(update_query)
+        # for w in self.weights:
+        #     update_query = plpy.prepare("""
+        #         UPDATE {self.model_output_table}
+        #         SET {self.model_weights_col} = $1
+        #         WHERE {self.mst_key_col} = {mst_key}
+        #     """.format(self=self,
+        #                mst_key=w[self.mst_key_col]),
+        #                ['bytea'])
+        #     plpy.execute(update_query)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(
                                                         self.mst_weights_tbl,
                                                         self.mst_current_schedule_tbl,
