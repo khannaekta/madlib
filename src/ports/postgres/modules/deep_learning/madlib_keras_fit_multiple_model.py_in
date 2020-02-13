@@ -115,7 +115,6 @@ class FitMultipleModel():
         self.ind_shape_col = add_postfix(mb_indep_var_col, "_shape")
         self.use_gpus = use_gpus
         self.segments_per_host = get_segments_per_host()
-        self.weights = defaultdict(list)
         if self.use_gpus:
             self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(self.schema_madlib,
                 self.segments_per_host, self.module_name)
