@@ -27,12 +27,12 @@ def plpy_execute_debug(sql, *args, **kwargs):
         EXPLAIN of it, and how long the query
         takes to execute.
     """
-    plpy.info(sql)  # Print sql command
+    #plpy.info(sql)  # Print sql command
 
     # Print EXPLAIN of sql command
-    res = plpy.execute("EXPLAIN " + sql, *args)
-    for r in res:
-        plpy.info(r['QUERY PLAN'])
+    #res = plpy.execute("EXPLAIN " + sql, *args)
+    #for r in res:
+    #    plpy.info(r['QUERY PLAN'])
 
     # Run actual sql command, with timing
     start = time.time()
