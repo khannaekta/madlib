@@ -189,7 +189,7 @@ class FitMultipleModel():
                 if mst_idx == 0:
                     start_iteration = time.time()
                 #self.run_training(mst_idx)
-                self.run_training_truncate(mst_idx)
+                self.run_training_truncate2(mst_idx)
                 if mst_idx == (total_msts - 1):
                     end_iteration = time.time()
                     self.info_str = "\tTime for training in iteration {0}: {1} sec\n".format(iter,
@@ -246,7 +246,7 @@ class FitMultipleModel():
 
     def create_mst_schedule_table(self, mst_row):
         mst_temp_query = """
-                         CREATE TABLE {self.mst_current_schedule_tbl}
+                         CREATE UNLOGGED TABLE {self.mst_current_schedule_tbl}
                                 ({self.model_id_col} INTEGER,
                                  {self.compile_params_col} VARCHAR,
                                  {self.fit_params_col} VARCHAR,
@@ -497,8 +497,155 @@ class FitMultipleModel():
         # Therefore we want to have queries that do not add motions and all the
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
+        use_gpus = self.use_gpus if self.use_gpus else False
+        plpy.info("##############start mst hop {}#######################".format(mst_idx))
+        uda_query = """
+            CREATE UNLOGGED TABLE {self.mst_weights_tbl} AS
+                SELECT mst_tbl.*, wgh_tbl.{self.model_weights_col},
+                       model_arch_tbl.{self.model_arch_col}
+                FROM
+                    {self.mst_current_schedule_tbl} mst_tbl
+                    LEFT JOIN {self.model_output_table} wgh_tbl
+                    ON mst_tbl.{self.mst_key_col} = wgh_tbl.{self.mst_key_col}
+                        LEFT JOIN {self.model_arch_table} model_arch_tbl
+                        ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
+                DISTRIBUTED BY ({dist_key_col});
+            CREATE UNLOGGED TABLE {self.weights_to_update_tbl} AS
+            SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
+                {mb_indep_var_col},
+                {self.dep_shape_col},
+                {self.ind_shape_col},
+                {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
+                {self.mst_weights_tbl}.{self.compile_params_col}::TEXT,
+                {self.mst_weights_tbl}.{self.fit_params_col}::TEXT,
+                src.{dist_key_col},
+                ARRAY{self.dist_key_mapping},
+                src.{self.gp_segment_id_col},
+                {self.segments_per_host},
+                ARRAY{self.images_per_seg_train},
+                {use_gpus}::BOOLEAN,
+                ARRAY{self.accessible_gpus_for_seg},
+                {self.mst_weights_tbl}.{self.model_weights_col}::BYTEA,
+                {is_final_iteration}::BOOLEAN
+                )::BYTEA AS {self.model_weights_col},
+                {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
+                ,src.{dist_key_col} AS {dist_key_col}
+            FROM {self.source_table} src JOIN {self.mst_weights_tbl}
+                USING ({dist_key_col})
+            WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
+            GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
+            DISTRIBUTED BY({dist_key_col});
+            UPDATE {self.model_output_table}
+            SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
+            FROM {self.weights_to_update_tbl}
+            WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col};
+            DROP TABLE IF EXISTS {self.mst_weights_tbl}, {self.mst_current_schedule_tbl}, {self.weights_to_update_tbl};
+            """.format(mb_dep_var_col=mb_dep_var_col,
+                       mb_indep_var_col=mb_indep_var_col,
+                       is_final_iteration=True,
+                       dist_key_col=dist_key_col,
+                       use_gpus=use_gpus,
+                       self=self
+                       )
+        plpy_execute_debug(uda_query)
+
+        plpy.info("##############mst hop {}#######################".format(mst_idx))
+    
+    def run_training_truncate(self, mst_idx):
+        # NOTE: In the DL module, we want to avoid CREATING TEMP tables
+        # (creates a slice which stays until the session is disconnected)
+        # or minimize writing queries that generate plans with Motions (creating
+        # multiple slices on segments).
+        # This is mainly to avoid any GPU memory allocation failures. Since GPU
+        # memory allocation is tied to the process where it is initialized, failures
+        # may occur when a newly created slice(process) tries allocating GPU memory
+        # which is already allocated by a previously created slice(process).
+        # Therefore we want to have queries that do not add motions and all the
+        # sub-queries running Keras/tensorflow operations reuse the same slice(process)
+        # that was used for initializing GPU memory.
+        #plpy_execute_debug(mst_weights_query)
+        use_gpus = self.use_gpus if self.use_gpus else False
+        plpy.info("##############truncate: start mst hop {}#######################".format(mst_idx))
+        uda_query = """
+            CREATE UNLOGGED TABLE {self.mst_weights_tbl} AS
+                SELECT mst_tbl.*, wgh_tbl.{self.model_weights_col},
+                       model_arch_tbl.{self.model_arch_col}
+                FROM
+                    {self.mst_current_schedule_tbl} mst_tbl
+                    LEFT JOIN {self.model_output_table} wgh_tbl
+                    ON mst_tbl.{self.mst_key_col} = wgh_tbl.{self.mst_key_col}
+                        LEFT JOIN {self.model_arch_table} model_arch_tbl
+                        ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
+                DISTRIBUTED BY ({dist_key_col});
+            
+            CREATE UNLOGGED TABLE {self.weights_to_update_tbl} AS
+            SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
+                {mb_indep_var_col},
+                {self.dep_shape_col},
+                {self.ind_shape_col},
+                {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
+                {self.mst_weights_tbl}.{self.compile_params_col}::TEXT,
+                {self.mst_weights_tbl}.{self.fit_params_col}::TEXT,
+                src.{dist_key_col},
+                ARRAY{self.dist_key_mapping},
+                src.{self.gp_segment_id_col},
+                {self.segments_per_host},
+                ARRAY{self.images_per_seg_train},
+                {use_gpus}::BOOLEAN,
+                ARRAY{self.accessible_gpus_for_seg},
+                {self.mst_weights_tbl}.{self.model_weights_col}::BYTEA,
+                {is_final_iteration}::BOOLEAN
+                )::BYTEA AS {self.model_weights_col},
+                {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
+                ,src.{dist_key_col} AS {dist_key_col}
+            FROM {self.source_table} src JOIN {self.mst_weights_tbl}
+                USING ({dist_key_col})
+            WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
+            GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
+            DISTRIBUTED BY({dist_key_col});
+            
+            UPDATE {self.model_output_table}
+            SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
+            FROM {self.weights_to_update_tbl}
+            WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col};
+            
+            --CREATE UNLOGGED TABLE temp_model_tbl as SELECT * FROM {self.model_output_table};
+            CREATE UNLOGGED TABLE temp_model_tbl ( LIKE {self.model_output_table} INCLUDING all);
+            INSERT INTO temp_model_tbl SELECT * FROM {self.model_output_table};
+            TRUNCATE {self.model_output_table};
+            DROP TABLE {self.model_output_table};
+            ALTER TABLE temp_model_tbl RENAME TO {self.model_output_table};
+            TRUNCATE TABLE {self.mst_weights_tbl}, {self.mst_current_schedule_tbl}, {self.weights_to_update_tbl};
+            DROP TABLE IF EXISTS {self.mst_weights_tbl}, {self.mst_current_schedule_tbl}, {self.weights_to_update_tbl};
+            """.format(
+                       mb_dep_var_col=mb_dep_var_col,
+                       mb_indep_var_col=mb_indep_var_col,
+                       is_final_iteration=True,
+                       dist_key_col=dist_key_col,
+                       use_gpus=use_gpus,
+                       self=self
+                       )
+        plpy_execute_debug(uda_query)
+
+        plpy.info("##############truncate: mst hop {}#######################".format(mst_idx))
+    
+    def run_training_truncate2(self, mst_idx):
+        # NOTE: In the DL module, we want to avoid CREATING TEMP tables
+        # (creates a slice which stays until the session is disconnected)
+        # or minimize writing queries that generate plans with Motions (creating
+        # multiple slices on segments).
+        # This is mainly to avoid any GPU memory allocation failures. Since GPU
+        # memory allocation is tied to the process where it is initialized, failures
+        # may occur when a newly created slice(process) tries allocating GPU memory
+        # which is already allocated by a previously created slice(process).
+        # Therefore we want to have queries that do not add motions and all the
+        # sub-queries running Keras/tensorflow operations reuse the same slice(process)
+        # that was used for initializing GPU memory.
+        use_gpus = self.use_gpus if self.use_gpus else False
+        start_time = time.time()
+        #plpy.info("##############start mst hop {}#######################".format(mst_idx))
         mst_weights_query = """
-            CREATE TABLE {self.mst_weights_tbl} AS
+            CREATE UNLOGGED TABLE {self.mst_weights_tbl} AS
                 SELECT mst_tbl.*, wgh_tbl.{self.model_weights_col},
                        model_arch_tbl.{self.model_arch_col}
                 FROM
@@ -513,7 +660,7 @@ class FitMultipleModel():
         plpy.execute(mst_weights_query)
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
-            CREATE TABLE {self.weights_to_update_tbl} AS
+            CREATE UNLOGGED TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                 {mb_indep_var_col},
                 {self.dep_shape_col},
@@ -545,7 +692,7 @@ class FitMultipleModel():
                        use_gpus=use_gpus,
                        self=self
                        )
-        plpy_execute_debug(uda_query)
+        plpy.execute(uda_query)
 
         update_query = """
             UPDATE {self.model_output_table}
@@ -554,85 +701,17 @@ class FitMultipleModel():
             WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
         """.format(self=self)
         plpy.execute(update_query)
-        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(
-                                                        self.mst_weights_tbl,
-                                                        self.mst_current_schedule_tbl,
-                                                        self.weights_to_update_tbl))
-        plpy.info("##############mst hop {}#######################".format(mst_idx))
-    
-    def run_training_truncate(self, mst_idx):
-        # NOTE: In the DL module, we want to avoid CREATING TEMP tables
-        # (creates a slice which stays until the session is disconnected)
-        # or minimize writing queries that generate plans with Motions (creating
-        # multiple slices on segments).
-        # This is mainly to avoid any GPU memory allocation failures. Since GPU
-        # memory allocation is tied to the process where it is initialized, failures
-        # may occur when a newly created slice(process) tries allocating GPU memory
-        # which is already allocated by a previously created slice(process).
-        # Therefore we want to have queries that do not add motions and all the
-        # sub-queries running Keras/tensorflow operations reuse the same slice(process)
-        # that was used for initializing GPU memory.
-        #plpy_execute_debug(mst_weights_query)
-        use_gpus = self.use_gpus if self.use_gpus else False
-        uda_query = """
-            CREATE TABLE {self.mst_weights_tbl} AS
-                SELECT mst_tbl.*, wgh_tbl.{self.model_weights_col},
-                       model_arch_tbl.{self.model_arch_col}
-                FROM
-                    {self.mst_current_schedule_tbl} mst_tbl
-                    LEFT JOIN {self.model_output_table} wgh_tbl
-                    ON mst_tbl.{self.mst_key_col} = wgh_tbl.{self.mst_key_col}
-                        LEFT JOIN {self.model_arch_table} model_arch_tbl
-                        ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
-                DISTRIBUTED BY ({dist_key_col});
-            
-            CREATE TABLE {self.weights_to_update_tbl} AS
-            SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
-                {mb_indep_var_col},
-                {self.dep_shape_col},
-                {self.ind_shape_col},
-                {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
-                {self.mst_weights_tbl}.{self.compile_params_col}::TEXT,
-                {self.mst_weights_tbl}.{self.fit_params_col}::TEXT,
-                src.{dist_key_col},
-                ARRAY{self.dist_key_mapping},
-                src.{self.gp_segment_id_col},
-                {self.segments_per_host},
-                ARRAY{self.images_per_seg_train},
-                {use_gpus}::BOOLEAN,
-                ARRAY{self.accessible_gpus_for_seg},
-                {self.mst_weights_tbl}.{self.model_weights_col}::BYTEA,
-                {is_final_iteration}::BOOLEAN
-                )::BYTEA AS {self.model_weights_col},
-                {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
-                ,src.{dist_key_col} AS {dist_key_col}
-            FROM {self.source_table} src JOIN {self.mst_weights_tbl}
-                USING ({dist_key_col})
-            WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
-            GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
-            DISTRIBUTED BY({dist_key_col});
-            
-            UPDATE {self.model_output_table}
-            SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
-            FROM {self.weights_to_update_tbl}
-            WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col};
-            
-            --CREATE TABLE temp_model_tbl as SELECT * FROM {self.model_output_table};
-            CREATE TABLE temp_model_tbl ( LIKE {self.model_output_table} INCLUDING all);
+
+        plpy.execute("""
+            CREATE UNLOGGED TABLE temp_model_tbl ( LIKE {self.model_output_table} INCLUDING all);
             INSERT INTO temp_model_tbl SELECT * FROM {self.model_output_table};
             TRUNCATE {self.model_output_table};
             DROP TABLE {self.model_output_table};
             ALTER TABLE temp_model_tbl RENAME TO {self.model_output_table};
             TRUNCATE TABLE {self.mst_weights_tbl}, {self.mst_current_schedule_tbl}, {self.weights_to_update_tbl};
-            DROP TABLE IF EXISTS {self.mst_weights_tbl}, {self.mst_current_schedule_tbl}, {self.weights_to_update_tbl};
-            """.format(
-                       mb_dep_var_col=mb_dep_var_col,
-                       mb_indep_var_col=mb_indep_var_col,
-                       is_final_iteration=True,
-                       dist_key_col=dist_key_col,
-                       use_gpus=use_gpus,
-                       self=self
-                       )
-        plpy_execute_debug(uda_query)
-
-        plpy.info("##############truncate: mst hop {}#######################".format(mst_idx))
+        """.format(self=self))
+        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(
+                                                        self.mst_weights_tbl,
+                                                        self.mst_current_schedule_tbl,
+                                                        self.weights_to_update_tbl))
+        #plpy.info("##############truncate: end mst hop {}: {}s#######################".format(mst_idx, time.time() - start_time))
