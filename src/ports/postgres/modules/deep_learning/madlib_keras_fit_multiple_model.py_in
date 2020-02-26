@@ -183,6 +183,13 @@ class FitMultipleModel():
         total_msts = len(self.msts_for_schedule)
         for iter in range(1, self.num_iterations+1):
             for mst_idx in range(total_msts):
+                # self.is_final_iteration = (iter == self.num_iterations and mst_idx+1 == total_msts)
+                if len(self.msts) < len(self.dist_keys):
+                    self.is_final_iteration = True
+                else:
+                    self.is_final_iteration = (mst_idx+1 == total_msts)
+
+                plpy.info(self.is_final_iteration)
                 mst_row = [self.grand_schedule[dist_key][mst_idx]
                            for dist_key in self.dist_keys]
                 self.create_mst_schedule_table(mst_row)
@@ -230,7 +237,7 @@ class FitMultipleModel():
                 self.accessible_gpus_for_seg,
                 seg_ids,
                 images_per_seg,
-                [], [], epoch, True)
+                [], [], epoch, True, self.is_final_iteration)
             mst_metric_eval_time[mst[self.mst_key_col]] \
                 .append(time.time() - self.metrics_elapsed_start_time)
             mst_loss[mst[self.mst_key_col]].append(loss)
@@ -687,7 +694,7 @@ class FitMultipleModel():
             DISTRIBUTED BY({dist_key_col})
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
-                       is_final_iteration=True,
+                       is_final_iteration=self.is_final_iteration,
                        dist_key_col=dist_key_col,
                        use_gpus=use_gpus,
                        self=self
