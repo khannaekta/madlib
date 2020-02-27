@@ -526,32 +526,35 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     total_images = get_image_count_per_seg_from_array(dist_key_mapping.index(dist_key),
                                                       images_per_seg)
     if agg_image_count == total_images:
-        # plpy.info('last row')
         # For madlib_keras_fit_multiple_model(), we don't need to update weights
         # with the total no of images as there is no merge function for it.
         if not is_multiple_model:
             updated_weights = [total_images * w for w in updated_weights]
         if is_multiple_model:
+            new_state = madlib_keras_serializer.serialize_nd_weights(updated_weights)
             # SD_STORE.clear_SD(SD)
             del SD[SD_STORE.SEGMENT_MODEL]
         if is_final_iteration:
+            plpy.info('############# clearing session in fit transition #######################')
             if SD_STORE.SEGMENT_MODEL in SD:
                 del SD[SD_STORE.SEGMENT_MODEL]
             # plpy.info('Clear Session')
             clear_keras_session(sess)
             del SD[SD_STORE.SESS]
 
-    if is_multiple_model:
+        if is_multiple_model:
             new_state = madlib_keras_serializer.serialize_nd_weights(updated_weights)
-    else:
-        new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
-            agg_image_count, updated_weights)
+        else:
+            new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+                agg_image_count, updated_weights)
 
+        return new_state
+
+
+    new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+        agg_image_count, updated_weights)
     del x_train
     del y_train
-
-    # new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
-    #     agg_image_count, updated_weights)
 
     return new_state
 
