@@ -57,7 +57,8 @@ def get_image_count_from_state(state):
     if not state:
         image_count = 0
     else:
-        image_count , _  = deserialize_as_image_1d_weights(state)
+        # image_count , _  = deserialize_as_image_1d_weights(state)
+        image_count = float(state.split('splitter')[0])
     return image_count
 
 def get_serialized_1d_weights_from_state(state):
@@ -71,6 +72,20 @@ def get_serialized_1d_weights_from_state(state):
     """
     _ , weights = deserialize_as_image_1d_weights(state)
     return weights.tostring()
+
+def serialize_nd_weights(model_weights):
+    """
+    This function is called for passing the initial model weights from the keras
+    fit function to the keras fit transition function.
+    :param model_weights: a list of numpy arrays, what you get from
+        keras.get_weights()
+    :return: Model weights serialized into a bytestring format
+    """
+    if model_weights is None:
+        return None
+    flattened_weights = [w.flatten() for w in model_weights]
+    model_weights_serialized = np.concatenate(flattened_weights)
+    return np.float32(model_weights_serialized).tostring()
 
 def serialize_state_with_nd_weights(image_count, model_weights):
     """
@@ -86,12 +101,9 @@ def serialize_state_with_nd_weights(image_count, model_weights):
     if model_weights is None:
         return None
     flattened_weights = [w.flatten() for w in model_weights]
+    # flattened_weights = [np.array([image_count])] + flattened_weights
     model_weights_serialized = np.concatenate(flattened_weights)
-    new_model_string = np.array([image_count])
-    new_model_string = np.concatenate((new_model_string, model_weights_serialized))
-    new_model_string = np.float32(new_model_string)
-    return new_model_string.tostring()
-
+    return str(image_count) + "splitter" + np.float32(model_weights_serialized).tostring()
 
 def serialize_state_with_1d_weights(image_count, model_weights):
     """
@@ -106,10 +118,11 @@ def serialize_state_with_1d_weights(image_count, model_weights):
     """
     if model_weights is None:
         return None
-    merge_state = np.array([image_count])
-    merge_state = np.concatenate((merge_state, model_weights))
+    # merge_state = np.array([image_count])
+    # merge_state = np.concatenate((merge_state, model_weights))
+    merge_state = np.concatenate(model_weights)
     merge_state = np.float32(merge_state)
-    return merge_state.tostring()
+    return str(image_count) + "splitter" + merge_state.tostring()
 
 
 def deserialize_as_image_1d_weights(state):
@@ -126,23 +139,10 @@ def deserialize_as_image_1d_weights(state):
     """
     if not state:
         return None
-    state = np.fromstring(state, dtype=np.float32)
-    return float(state[0]), state[1:]
-
-
-def serialize_nd_weights(model_weights):
-    """
-    This function is called for passing the initial model weights from the keras
-    fit function to the keras fit transition function.
-    :param model_weights: a list of numpy arrays, what you get from
-        keras.get_weights()
-    :return: Model weights serialized into a bytestring format
-    """
-    if model_weights is None:
-        return None
-    flattened_weights = [w.flatten() for w in model_weights]
-    model_weights_serialized = np.concatenate(flattened_weights)
-    return np.float32(model_weights_serialized).tostring()
+    state = state.split('splitter')
+    image_count = state[0]
+    state = np.fromstring(state[1], dtype=np.float32)
+    return float(image_count), state
 
 
 def deserialize_as_nd_weights(model_weights_serialized, model_shapes):
