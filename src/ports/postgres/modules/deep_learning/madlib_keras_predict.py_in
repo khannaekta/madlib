@@ -134,6 +134,10 @@ class BasePredict():
                        group_by_clause=group_by_clause,
                        join_cond_on_segmentid=join_cond_on_segmentid),
                                      ["text", "bytea"])
+        if is_platform_gp6():
+            for i in range(1, 6):
+                plpy.execute(predict_query, [DUMMY_JSON, DUMMY_WEIGHTS])
+                plpy.execute("DROP TABLE IF EXISTS {0}".format(self.output_table))
         plpy.execute(predict_query, [self.model_arch, self.model_weights])
 
     def set_default_class_values(self, class_values):
@@ -256,6 +260,8 @@ def internal_keras_predict(independent_var, model_architecture, model_weights,
                            is_response, normalizing_const, current_seg_id, seg_ids,
                            images_per_seg, use_gpus, gpus_per_host, segments_per_host,
                            **kwargs):
+    if model_architecture == DUMMY_JSON:
+        return [0]
     SD = kwargs['SD']
     model_key = 'segment_model_predict'
     row_count_key = 'row_count'
