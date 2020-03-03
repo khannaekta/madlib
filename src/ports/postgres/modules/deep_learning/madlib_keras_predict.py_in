@@ -29,6 +29,7 @@ from model_arch_info import *
 from madlib_keras_helper import *
 from madlib_keras_validator import *
 from predict_input_params import PredictParamsProcessor
+from utilities.control import GUCControl
 from utilities.control import MinWarning
 from utilities.utilities import _assert
 from utilities.utilities import add_postfix
@@ -134,7 +135,8 @@ class BasePredict():
                        group_by_clause=group_by_clause,
                        join_cond_on_segmentid=join_cond_on_segmentid),
                                      ["text", "bytea"])
-        plpy.execute(predict_query, [self.model_arch, self.model_weights])
+        with GUCControl("plan_cache_mode", "force_generic_plan"):
+            plpy.execute(predict_query, [self.model_arch, self.model_weights])
 
     def set_default_class_values(self, class_values):
         self.class_values = class_values

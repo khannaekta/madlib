@@ -32,6 +32,7 @@ from madlib_keras_model_selection import ModelSelectionSchema
 from madlib_keras_validator import *
 from madlib_keras_wrapper import *
 
+from utilities.control import GUCControl
 from utilities.control import MinWarning
 from utilities.control import OptimizerControl
 from utilities.utilities import unique_string
@@ -293,23 +294,15 @@ class FitMultipleModel():
                                          {self.model_arch_col} JSON)
                                         """.format(self=self)
             plpy.execute(output_table_create_query)
-        output_table_insert_query = """
-                            INSERT INTO {self.model_output_table}(
-                                 {self.mst_key_col}, {self.model_weights_col},
-                                 {self.model_arch_col})
-                              SELECT v1,v2,v3 from (VALUES ($1, $2, $3))t(v1,v2,v3)
-                                """.format(self=self)
-        output_table_insert_query_prepared = plpy.prepare(
-             output_table_insert_query, ["int", "bytea", "json"])
+        # output_table_insert_query = """
+        #                     INSERT INTO {self.model_output_table}(
+        #                          {self.mst_key_col}, {self.model_weights_col},
+        #                          {self.model_arch_col})
+        #                       SELECT v1,v2,v3 from (VALUES ($1, $2, $3))t(v1,v2,v3)
+        #                         """.format(self=self)
+        # output_table_insert_query_prepared = plpy.prepare(
+        #      output_table_insert_query, ["int", "bytea", "json"])
 
-        ## prepare generic plan for GPDB6 insert query
-        if is_platform_gp6():
-            for i in range(1, 6):
-                plpy.execute(output_table_insert_query_prepared, [0, DUMMY_WEIGHTS, DUMMY_JSON])
-                plpy.execute("""
-                                DELETE FROM {self.model_output_table}
-                                WHERE {self.mst_key_col}=0
-                             """.format(self=self))
 
         info_table_create_query = """
                                   CREATE TABLE {self.model_info_table}
@@ -387,8 +380,22 @@ class FitMultipleModel():
             plpy.execute(info_table_insert_query)
 
             if not mst['mst_key'] in warm_start_msts:
-                plpy.execute(output_table_insert_query_prepared, [
-                    mst[self.mst_key_col], serialized_weights, model_arch])
+                output_table_insert_query = """
+                                    INSERT INTO {self.model_output_table}(
+                                        {self.mst_key_col}, {self.model_weights_col},
+                                        {self.model_arch_col})
+                                    VALUES ({mst_key}, $1, $2)
+                                       """.format(self=self,
+                                                  mst_key=mst[self.mst_key_col])
+                output_table_insert_query_prepared = plpy.prepare(
+                    output_table_insert_query, ["bytea", "json"])
+                if is_platform_gp6():
+                    with GUCControl("plan_cache_mode", "force_generic_plan"):
+                        plpy.execute(output_table_insert_query_prepared, [
+                                 serialized_weights, model_arch])
+                else:
+                    plpy.execute(output_table_insert_query_prepared, [
+                        serialized_weights, model_arch])
 
     def create_model_summary_table(self):
         if self.warm_start:

@@ -42,6 +42,8 @@ from utilities.utilities import madlib_version
 from utilities.utilities import unique_string
 from utilities.validate_args import get_expr_type
 from utilities.control import MinWarning
+from utilities.control import OptimizerControl
+from utilities.control import GUCControl
 import tensorflow as tf
 
 class SD_STORE:
@@ -181,9 +183,12 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
-        serialized_weights = plpy.execute(run_training_iteration,
-                                        [serialized_weights, is_final_iteration]
-                                        )[0]['iteration_result']
+        plpy.info("Iter {} start".format(i))
+        with GUCControl("plan_cache_mode", "force_generic_plan"):
+            serialized_weights = plpy.execute(run_training_iteration,
+                                            [serialized_weights, is_final_iteration]
+                                            )[0]['iteration_result']
+        plpy.info("Iter {} done".format(i))
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
             end_iteration - start_iteration)
@@ -325,10 +330,11 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         """.format(model, ModelArchSchema.MODEL_ARCH), ["bytea", "json"])
     ## prepare generic plan for GPDB6 insert query
     if is_platform_gp6():
-        for i in range(1, 6):
-            plpy.execute(insert_output_table, [DUMMY_WEIGHTS, DUMMY_JSON])
-            plpy.execute("TRUNCATE TABLE {0}".format(model))
-    plpy.execute(insert_output_table, [serialized_weights, model_arch])
+        with OptimizerControl(False):
+            with GUCControl("plan_cache_mode", "force_generic_plan"):
+                plpy.execute(insert_output_table, [serialized_weights, model_arch])
+    else:
+        plpy.execute(insert_output_table, [serialized_weights, model_arch])
 
     #TODO add a unit test for this in a future PR
     reset_cuda_env(original_cuda_env)
@@ -486,7 +492,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         b. keras session is cleared at the end of the final iteration,
         i.e, last row of last iteration.
     """
-    if not independent_var or not dependent_var or prev_serialized_weights==DUMMY_WEIGHTS:
+    if not independent_var or not dependent_var:
         return state
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[current_seg_id], current_seg_id)
@@ -555,6 +561,7 @@ def fit_merge(state1, state2, **kwargs):
 
 def fit_final(state, **kwargs):
     # Return if called early
+    return state
     if not state:
         return state
 
@@ -697,8 +704,11 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             )) as loss_metric
         from {table}
         """.format(**locals()),["bytea", "boolean"])
-    prepare_generic_plan(evaluate_query, [DUMMY_WEIGHTS, False])
-    res = plpy.execute(evaluate_query, [serialized_weights, is_final_iteration])
+    if is_platform_gp6():
+        with GUCControl("plan_cache_mode", "force_generic_plan"):
+            res = plpy.execute(evaluate_query, [serialized_weights, is_final_iteration])
+    else:
+        res = plpy.execute(evaluate_query, [serialized_weights, is_final_iteration])
     loss_metric = res[0]['loss_metric']
     return loss_metric
 
@@ -710,8 +720,6 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
                                    segments_per_host, images_per_seg,
                                    use_gpus, accessible_gpus_for_seg,
                                    is_final_iteration, **kwargs):
-    if serialized_weights == DUMMY_WEIGHTS:
-        return None
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[current_seg_id], current_seg_id)
     agg_loss, agg_metric, agg_image_count = state

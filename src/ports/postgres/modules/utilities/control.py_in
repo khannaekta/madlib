@@ -134,6 +134,46 @@ class HashaggControl(ContextDecorator):
                              format(('off', 'on')[self.hashagg_enabled]))
 
 
+class GUCControl(ContextDecorator):
+
+    """
+    @brief: A wrapper that enables/disables the GUC passed in and then sets it back
+        to the original value on exit
+
+    This context manager should be used at the top-level and any exception
+    raised from this should be re-raised (if caught) to ensure the transaction
+    does not commit.
+    """
+
+    def __init__(self, guc_name, guc_value):
+        self.guc_name = guc_name
+        self.to_enable = guc_value
+        self.guc_enabled = False
+        self.guc_exists = True
+
+    def __enter__(self):
+        try:
+            enable_guc = plpy.execute("show {0}".format(self.guc_name))[0][self.guc_name]
+            self.guc_enabled = enable_guc
+            plpy.execute("set {0}={1}".
+                         format(self.guc_name, self.to_enable))
+        except plpy.SPIError:
+            self.guc_exists = False
+        finally:
+            return self
+
+    def __exit__(self, *args):
+        if args and args[0]:
+            # an exception was raised in code. We return False so that any
+            # exception is re-raised after exit. The transaction will not
+            # commit leading to reset of parameter value.
+            return False
+        else:
+            if self.guc_exists:
+                plpy.execute("set {0}={1}".
+                             format(self.guc_name, self.guc_enabled))
+
+
 class MinWarning(ContextDecorator):
 
     """
