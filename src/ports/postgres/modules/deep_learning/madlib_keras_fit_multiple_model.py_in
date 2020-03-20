@@ -186,6 +186,7 @@ class FitMultipleModel():
                 mst_row = [self.grand_schedule[dist_key][mst_idx]
                            for dist_key in self.dist_keys]
                 self.create_mst_schedule_table(mst_row)
+                self.is_final_iter = (iter == self.num_iterations and mst_idx == total_msts-1)
                 if mst_idx == 0:
                     start_iteration = time.time()
                 self.run_training()
@@ -512,6 +513,7 @@ class FitMultipleModel():
                    **locals())
         plpy.execute(mst_weights_query)
         use_gpus = self.use_gpus if self.use_gpus else False
+        self.unlogged_table = self.unlogged_table if not self.is_final_iter else ''
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
