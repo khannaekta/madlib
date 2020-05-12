@@ -147,6 +147,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
     # res = plpy.execute("select fn from custom_functions c where c.name = 'keras_custom_loss'")
+    import dill
+    plpy.info("Start dumping")
+    fn_map = dill.dumps(load_custom_loss_functions('custom_functions'))
+    plpy.info("Done dumping")
     run_training_iteration = plpy.prepare("""
         SELECT {schema_madlib}.fit_step(
             {mb_dep_var_col},
@@ -165,10 +169,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             ARRAY{accessible_gpus_for_seg},
             $1,
             $2,
-            fn
+            $3
         ) AS iteration_result
-        FROM {source_table} src, custom_functions c where c.name = 'keras_custom_loss'
-        """.format(**locals()), ["bytea", "boolean"])
+        FROM {source_table} src--, custom_functions c where c.name = 'keras_custom_loss'
+        """.format(**locals()), ["bytea", "boolean", "bytea"])
 
     # Define the state for the model and loss/metric storage lists
     training_loss, training_metrics, metrics_elapsed_time = [], [], []
@@ -182,7 +186,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
         serialized_weights = plpy.execute(run_training_iteration,
-                                        [serialized_weights, is_final_iteration]
+                                        [serialized_weights, is_final_iteration, fn_map]
                                         )[0]['iteration_result']
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
@@ -194,7 +198,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             compute_out = compute_loss_and_metrics(
                 schema_madlib, source_table, compile_params_to_pass, model_arch,
                 serialized_weights, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
-                images_per_seg_train, training_metrics, training_loss, i, is_final_iteration)
+                images_per_seg_train, training_metrics, training_loss, i, is_final_iteration, fn_map)
             metrics_iters.append(i)
             compute_time, compute_metrics, compute_loss = compute_out
 
@@ -211,7 +215,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                     schema_madlib, validation_table, compile_params_to_pass,
                     model_arch, serialized_weights, use_gpus, accessible_gpus_for_seg,
                     seg_ids_val, images_per_seg_val, validation_metrics,
-                    validation_loss, i, is_final_iteration)
+                    validation_loss, i, is_final_iteration, fn_map)
                 val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
 
                 info_str += "\n\tTime for evaluating validation dataset in "\
@@ -398,7 +402,7 @@ def get_metrics_sql_string(metrics_list, is_metrics_specified):
 def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                              serialized_weights, use_gpus, accessible_gpus_for_seg,
                              dist_key_mapping, images_per_seg_val, metrics_list, loss_list,
-                             curr_iter, is_final_iteration):
+                             curr_iter, is_final_iteration, fn_map):
     """
     Compute the loss and metric using a given model (serialized_weights) on the
     given dataset (table.)
@@ -413,7 +417,8 @@ def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                                                    accessible_gpus_for_seg,
                                                    dist_key_mapping,
                                                    images_per_seg_val,
-                                                   is_final_iteration)
+                                                   is_final_iteration,
+                                                    fn_map)
     end_val = time.time()
 
     if len(evaluate_result) not in [1, 2]:
@@ -674,7 +679,7 @@ def validate_evaluate(module_name, model_table, model_summary_table, test_table,
 def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                     model_arch, serialized_weights, use_gpus,
                                     accessible_gpus_for_seg, dist_key_mapping, images_per_seg,
-                                    is_final_iteration=True):
+                                    is_final_iteration=True, fn_map=None):
 
     dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
     gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
@@ -709,11 +714,11 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             {use_gpus}::BOOLEAN,
                                             ARRAY{accessible_gpus_for_seg},
                                             {is_final_iteration},
-                                            fn
+                                            $2
                                             )) as loss_metric
-        from {table} t, custom_functions c where c.name = 'keras_custom_loss'
-        """.format(**locals()), ["bytea"])
-    res = plpy.execute(evaluate_query, [serialized_weights])
+        from {table} t --, custom_functions c where c.name = 'keras_custom_loss'
+        """.format(**locals()), ["bytea", "bytea"])
+    res = plpy.execute(evaluate_query, [serialized_weights, fn_map])
     loss_metric = res[0]['loss_metric']
     return loss_metric
 

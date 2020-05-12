@@ -316,7 +316,7 @@ def compile_model(model, compile_params, custom_loss_fn):
     import dill
     pb=dill.loads(custom_loss_fn)
     plpy.info("pb obj")
-    compile_dict['loss']=pb
+    compile_dict['loss']=pb[compile_dict['loss']]
     compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
     plpy.info(compile_dict)
     model.compile(**compile_dict)
