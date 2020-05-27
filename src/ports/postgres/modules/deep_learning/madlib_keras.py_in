@@ -80,7 +80,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         model_id, compile_params, fit_params, num_iterations,
         use_gpus, validation_table=None,
         metrics_compute_frequency=None, warm_start=False, name="",
-        description="", **kwargs):
+        description="", object_table=None, **kwargs):
 
     module_name = 'madlib_keras_fit'
     fit_params = "" if not fit_params else fit_params
@@ -105,7 +105,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         source_table, validation_table, model, model_arch_table,
         model_id, mb_dep_var_col, mb_indep_var_col,
         num_iterations, metrics_compute_frequency, warm_start,
-        use_gpus, accessible_gpus_for_seg)
+        use_gpus, accessible_gpus_for_seg, object_table)
     if metrics_compute_frequency is None:
         metrics_compute_frequency = num_iterations
 

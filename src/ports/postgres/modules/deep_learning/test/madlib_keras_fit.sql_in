@@ -28,6 +28,19 @@ m4_include(`SQLCommon.m4')
 
 -- Please do not break up the compile_params string
 -- It might break the assertion
+CREATE OR REPLACE FUNCTION custom_function_object()
+RETURNS BYTEA AS
+$$
+import dill
+def test_sum_fn(a, b):
+	return a+b
+
+pb=dill.dumps(test_sum_fn)
+return pb
+$$ language plpythonu;
+DROP TABLE IF EXISTS test_custom_function_table;
+SELECT load_custom_function('test_custom_function_table', custom_function_object(), 'sum_fn', 'returns sum');
+
 DROP TABLE IF EXISTS keras_saved_out, keras_saved_out_summary;
 SELECT madlib_keras_fit(
     'cifar_10_sample_batched',
@@ -38,7 +51,7 @@ SELECT madlib_keras_fit(
     $$ batch_size=2, epochs=1, verbose=0 $$::text,
     3,
     NULL,
-    'cifar_10_sample_val');
+    'cifar_10_sample_val', NULL, NULL, NULL, NULL, 'test_custom_function_table');
 
 SELECT assert(
         model_arch_table = 'model_arch' AND

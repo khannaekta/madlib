@@ -20,6 +20,7 @@
 import plpy
 from keras_model_arch_table import ModelArchSchema
 from model_arch_info import get_num_classes
+from madlib_keras_custom_function import CustomFunctionSchema
 from madlib_keras_helper import CLASS_VALUES_COLNAME
 from madlib_keras_helper import COMPILE_PARAMS_COLNAME
 from madlib_keras_helper import DEPENDENT_VARNAME_COLNAME
@@ -227,6 +228,17 @@ class InputValidator:
                 module_name, model_summary_table, cols_to_check_for))
 
     @staticmethod
+    def _validate_object_tbl(module_name, object_table):
+        input_tbl_valid(object_table, module_name)
+        cols_to_check_for = [CustomFunctionSchema.FN_NAME,
+                             CustomFunctionSchema.FN_OBJ]
+        _assert(columns_exist_in_table(
+            object_table, cols_to_check_for),
+            "{0} error: One or more expected columns missing in object "
+            "table ('{1}'). The expected columns are {2}.".format(
+                module_name, object_table, cols_to_check_for))
+
+    @staticmethod
     def _validate_gpu_config(module_name, source_table, accessible_gpus_for_seg):
 
         summary_table = add_postfix(source_table, "_summary")
@@ -246,7 +258,7 @@ class FitCommonValidator(object):
                  model_arch_table, model_id, dependent_varname,
                  independent_varname, num_iterations,
                  metrics_compute_frequency, warm_start,
-                 use_gpus, accessible_gpus_for_seg, module_name):
+                 use_gpus, accessible_gpus_for_seg, module_name, object_table=None):
         self.source_table = source_table
         self.validation_table = validation_table
         self.output_model_table = output_model_table
@@ -272,6 +284,9 @@ class FitCommonValidator(object):
         if use_gpus:
             InputValidator._validate_gpu_config(self.module_name,
                 self.source_table, self.accessible_gpus_for_seg)
+        if object_table:
+            InputValidator._validate_object_tbl(self.module_name,
+                                                object_table)
 
     def _validate_common_args(self):
         _assert(self.num_iterations > 0,
@@ -381,7 +396,7 @@ class FitInputValidator(FitCommonValidator):
                  model_arch_table, model_id, dependent_varname,
                  independent_varname, num_iterations,
                  metrics_compute_frequency, warm_start,
-                 use_gpus, accessible_gpus_for_seg):
+                 use_gpus, accessible_gpus_for_seg, object_table):
 
         self.module_name = 'madlib_keras_fit'
         super(FitInputValidator, self).__init__(source_table,
@@ -396,7 +411,8 @@ class FitInputValidator(FitCommonValidator):
                                                 warm_start,
                                                 use_gpus,
                                                 accessible_gpus_for_seg,
-                                                self.module_name)
+                                                self.module_name,
+                                                object_table)
         InputValidator.validate_model_arch_table(self.module_name, self.model_arch_table,
             self.model_id)
 
@@ -418,6 +434,9 @@ class FitMultipleInputValidator(FitCommonValidator):
         self.msts, self.model_arch_table = query_model_configs(
             model_selection_table, model_selection_summary_table,
             mst_key_col, model_arch_table_col)
+        ## TODO: Update to ModelSelectionSchema.OBJ_TABLE post rebase
+        object_table = plpy.execute("SELECT {0} FROM {1}".format('object_table',
+                                                                 model_selection_summary_table))[0]['object_table']
         if warm_start:
             input_tbl_valid(model_info_table, self.module_name)
         else:
@@ -434,7 +453,8 @@ class FitMultipleInputValidator(FitCommonValidator):
                                                         warm_start,
                                                         use_gpus,
                                                         accessible_gpus_for_seg,
-                                                        self.module_name)
+                                                        self.module_name,
+                                                        object_table)
 
 class MstLoaderInputValidator():
     def __init__(self,
