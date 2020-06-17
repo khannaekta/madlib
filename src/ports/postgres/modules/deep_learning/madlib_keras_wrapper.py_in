@@ -321,6 +321,29 @@ def compile_model(model, compile_params, custom_loss_fn):
     plpy.info(compile_dict)
     model.compile(**compile_dict)
 
+def compile_model_master(model, compile_params, object_table):
+    plpy.info("compile_model_master")
+    optimizers = get_optimizers()
+    (opt_name,final_args,compile_dict) = parse_and_validate_compile_params(compile_params)
+    plpy.info("Start")
+    plpy.info(compile_dict)
+    # keras_custom_loss_function=custom_loss_fn
+    if object_table:
+        custom_loss_fn = compile_dict['loss']
+        plpy.info("fn_name = {0}".format(custom_loss_fn))
+        from madlib_keras_custom_function import CustomFunctionSchema
+        fn_obj = plpy.execute("SELECT {object} FROM {object_table} WHERE {name}='{fn_name}'".format(object=CustomFunctionSchema.FN_OBJ,
+                                                                                   object_table=object_table,
+                                                                                   name=CustomFunctionSchema.FN_NAME,
+                                                                                   fn_name=custom_loss_fn))[0][CustomFunctionSchema.FN_OBJ]
+        plpy.info("fn_obj")
+        import dill
+        compile_dict['loss']=dill.loads(fn_obj)
+        plpy.info("pb obj")
+    compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
+    plpy.info(compile_dict)
+    model.compile(**compile_dict)
+
 def validate_compile_param_types(compile_dict):
     _assert('loss_weights' not in compile_dict.keys() or
             compile_dict['loss_weights'] is None or

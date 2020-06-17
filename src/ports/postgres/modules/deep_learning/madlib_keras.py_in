@@ -71,7 +71,11 @@ def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
     else:
         sess = get_keras_session(device_name, gpu_count, segments_per_host)
         K.set_session(sess)
-        segment_model = init_model(model_architecture, compile_params, custom_loss_fn)
+        plpy.info("Loading segment_model")
+        import dill
+        segment_model = dill.loads(custom_loss_fn)#
+        # segment_model = init_model(model_architecture, compile_params, custom_loss_fn)
+        plpy.info("Loaded segment_model {}".format(segment_model))
         SD_STORE.init_SD(SD, sess, segment_model)
     return segment_model, sess
 
@@ -80,7 +84,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         model_id, compile_params, fit_params, num_iterations,
         use_gpus, validation_table=None,
         metrics_compute_frequency=None, warm_start=False, name="",
-        description="", **kwargs):
+        description="", object_table=None, **kwargs):
 
     module_name = 'madlib_keras_fit'
     fit_params = "" if not fit_params else fit_params
@@ -105,7 +109,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         source_table, validation_table, model, model_arch_table,
         model_id, mb_dep_var_col, mb_indep_var_col,
         num_iterations, metrics_compute_frequency, warm_start,
-        use_gpus, accessible_gpus_for_seg)
+        use_gpus, accessible_gpus_for_seg, object_table)
     if metrics_compute_frequency is None:
         metrics_compute_frequency = num_iterations
 
@@ -147,10 +151,22 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
     # res = plpy.execute("select fn from custom_functions c where c.name = 'keras_custom_loss'")
+    # import dill
+    # plpy.info("Start dumping")
+    # fn_map = dill.dumps(load_custom_loss_functions('custom_functions'))
+    # plpy.info("Done dumping")
+    # join_txt = ""
+    # if object_table:
+    #     _, _, compile_dict = parse_and_validate_compile_params(compile_params)
+    #     custom_fn_name = compile_dict['loss']
+    #     join_txt = "JOIN {object_table} c " \
+    #                "WHERE c.{custom_fn_col_name} = '{custom_fn_name}'".format(object_table=object_table,
+    #                                                                           custom_fn_col_name=CustomFunctionSchema.custom_fn_name,
+    #                                                                           custom_fn_name=custom_fn_name)
+    segment_model = init_model_master(model_arch, compile_params, object_table)
     import dill
-    plpy.info("Start dumping")
-    fn_map = dill.dumps(load_custom_loss_functions('custom_functions'))
-    plpy.info("Done dumping")
+    segment_model_obj = dill.dumps(segment_model)
+    plpy.info("Segment model = {0}".format(segment_model))
     run_training_iteration = plpy.prepare("""
         SELECT {schema_madlib}.fit_step(
             {mb_dep_var_col},
@@ -171,7 +187,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             $2,
             $3
         ) AS iteration_result
-        FROM {source_table} src--, custom_functions c where c.name = 'keras_custom_loss'
+        FROM {source_table} src
         """.format(**locals()), ["bytea", "boolean", "bytea"])
 
     # Define the state for the model and loss/metric storage lists
@@ -186,7 +202,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
         serialized_weights = plpy.execute(run_training_iteration,
-                                        [serialized_weights, is_final_iteration, fn_map]
+                                        [serialized_weights, is_final_iteration, segment_model_obj]
                                         )[0]['iteration_result']
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
@@ -455,6 +471,14 @@ def init_model(model_architecture, compile_params, custom_loss_fn):
     compile_model(segment_model, compile_params, custom_loss_fn)
     return segment_model
 
+def init_model_master(model_architecture, compile_params, object_table):
+    """
+        Should only be called at the first row of first iteration.
+    """
+    segment_model = model_from_json(model_architecture)
+    compile_model_master(segment_model, compile_params, object_table)
+    return segment_model
+
 def update_model(segment_model, prev_serialized_weights):
     """
         Happens at first row of each iteration.
@@ -499,6 +523,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                                                   custom_loss_function)
     if not state:
         agg_image_count = 0
+        plpy.info("Here")
         set_model_weights(segment_model, prev_serialized_weights)
     else:
         agg_image_count = float(state)
