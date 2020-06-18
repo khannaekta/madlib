@@ -310,15 +310,14 @@ def get_optimizers():
 def compile_model(model, compile_params, custom_loss_fn):
     optimizers = get_optimizers()
     (opt_name,final_args,compile_dict) = parse_and_validate_compile_params(compile_params)
-    plpy.info("Start")
-    plpy.info(compile_dict)
-    # keras_custom_loss_function=custom_loss_fn
-    import dill
-    pb=dill.loads(custom_loss_fn)
-    plpy.info("pb obj")
-    compile_dict['loss']=pb[compile_dict['loss']]
+    # plpy.info(custom_loss_fn)
+    if custom_loss_fn is not None:
+        import dill
+        pb=dill.loads(custom_loss_fn)
+        # plpy.info("pb obj")
+        compile_dict['loss']=pb#[compile_dict['loss']]
     compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
-    plpy.info(compile_dict)
+    # plpy.info(compile_dict)
     model.compile(**compile_dict)
 
 def compile_model_master(model, compile_params, object_table):
