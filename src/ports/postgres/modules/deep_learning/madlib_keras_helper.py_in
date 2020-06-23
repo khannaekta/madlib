@@ -314,13 +314,3 @@ def get_accessible_gpus_for_seg(schema_madlib, segments_per_host, module_name):
                     'recommended configuration is to have 1 GPU available per segment.')
                 warning_flag = False
         return accessible_gpus_for_seg
-
-def load_custom_loss_functions(table_name):
-    res = plpy.execute("SELECT * FROM {table_name}".format(**locals()))
-    import dill
-    from collections import defaultdict
-    custom_fn_map = defaultdict(list)
-    for r in res:
-        custom_fn_map[r['name']] = dill.loads(r['fn'])
-    plpy.info(custom_fn_map)
-    return custom_fn_map

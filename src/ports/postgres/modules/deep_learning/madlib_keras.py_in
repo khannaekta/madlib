@@ -146,22 +146,23 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # Prepare the SQL for running distributed training via UDA
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
-    # res = plpy.execute("select fn from custom_functions c where c.name = 'keras_custom_loss'")
-    # import dill
-    # plpy.info("Start dumping")
-    # fn_map = dill.dumps(load_custom_loss_functions('custom_functions'))
-    # plpy.info("Done dumping")
-    join_txt = ""
-    custom_obj_col_name = 'NULL'
-    custom_fn_name = ""
-    if object_table:
-        _, _, compile_dict = parse_and_validate_compile_params(compile_params)
-        custom_fn_name = compile_dict['loss']
-        custom_obj_col_name = 'c.{0}'.format(CustomFunctionSchema.FN_OBJ)
-        join_txt = ", {object_table} c " \
-                   "WHERE c.{custom_fn_col_name} = '{custom_fn_name}'".format(object_table=object_table,
-                                                                              custom_fn_col_name=CustomFunctionSchema.FN_NAME,
-                                                                              custom_fn_name=custom_fn_name)
+    fn_map = None
+    if object_table is not None:
+        # _, _, compile_dict = parse_and_validate_compile_params(compile_params)
+        # custom_fn_name = compile_dict['loss']
+        # custom_obj_col_name = '{0}'.format(CustomFunctionSchema.FN_OBJ)
+        # res = plpy.execute("SELECT {custom_obj_col_name} FROM {object_table} "\
+        #                    "WHERE {custom_fn_col_name} = '{custom_fn_name}'".format(custom_obj_col_name=custom_obj_col_name,
+        #                                                                               object_table=object_table,
+        #                                                                               custom_fn_col_name=CustomFunctionSchema.FN_NAME,
+        #                                                                               custom_fn_name=custom_fn_name))
+        # from collections import defaultdict
+        # import dill
+        # custom_fn_map = defaultdict(list)
+        # for r in res:
+        #     custom_fn_map['{0}'.format(custom_fn_name)] = dill.loads(r['{0}'.format(CustomFunctionSchema.FN_OBJ)])
+        fn_map = get_custom_functions_map(object_table, compile_params)
+
     run_training_iteration = plpy.prepare("""
         SELECT {schema_madlib}.fit_step(
             {mb_dep_var_col},
@@ -180,13 +181,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             ARRAY{accessible_gpus_for_seg},
             $1,
             $2,
-            {custom_obj_col_name}
+            $3
         ) AS iteration_result
         FROM {source_table} src
-        {join_txt}
-        """.format(**locals()), ["bytea", "boolean"])
-    plpy.info("JT = {0} , custom_obj_col_name ={1}".format(join_txt, custom_obj_col_name))
-    # Define the state for the model and loss/metric storage lists
+        """.format(**locals()), ["bytea", "boolean", "bytea"])
     training_loss, training_metrics, metrics_elapsed_time = [], [], []
     metrics_iters = []
 
@@ -198,7 +196,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         start_iteration = time.time()
         is_final_iteration = (i == num_iterations)
         serialized_weights = plpy.execute(run_training_iteration,
-                                        [serialized_weights, is_final_iteration]
+                                        [serialized_weights, is_final_iteration, fn_map]
                                         )[0]['iteration_result']
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
@@ -211,7 +209,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                 schema_madlib, source_table, compile_params_to_pass, model_arch,
                 serialized_weights, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
                 images_per_seg_train, training_metrics, training_loss, i, is_final_iteration,
-                object_table, custom_fn_name)
+                fn_map)
             metrics_iters.append(i)
             compute_time, compute_metrics, compute_loss = compute_out
 
@@ -228,7 +226,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                     schema_madlib, validation_table, compile_params_to_pass,
                     model_arch, serialized_weights, use_gpus, accessible_gpus_for_seg,
                     seg_ids_val, images_per_seg_val, validation_metrics,
-                    validation_loss, i, is_final_iteration, object_table, custom_fn_name)
+                    validation_loss, i, is_final_iteration, fn_map)
                 val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
 
                 info_str += "\n\tTime for evaluating validation dataset in "\
@@ -281,6 +279,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         validation_metrics_final = validation_loss_final = 'NULL'
         validation_table = 'NULL'
 
+    object_table = "$MAD${0}$MAD$".format(object_table) if object_table is not None else 'NULL'
     if warm_start:
         plpy.execute("DROP TABLE {0}, {1}".format
                      (model, fit_validator.output_summary_model_table))
@@ -297,6 +296,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             $2 AS fit_params,
             {num_iterations}::INTEGER AS num_iterations,
             {validation_table}::TEXT AS validation_table,
+            {object_table}::TEXT AS object_table,
             {metrics_compute_frequency}::INTEGER AS metrics_compute_frequency,
             $3 AS name,
             $4 AS description,
@@ -415,8 +415,7 @@ def get_metrics_sql_string(metrics_list, is_metrics_specified):
 def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                              serialized_weights, use_gpus, accessible_gpus_for_seg,
                              dist_key_mapping, images_per_seg_val, metrics_list, loss_list,
-                             curr_iter, is_final_iteration, object_table,
-                             custom_fn_name):
+                             curr_iter, is_final_iteration, custom_fn_name):
     """
     Compute the loss and metric using a given model (serialized_weights) on the
     given dataset (table.)
@@ -432,7 +431,6 @@ def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                                                    dist_key_mapping,
                                                    images_per_seg_val,
                                                    is_final_iteration,
-                                                   object_table,
                                                    custom_fn_name)
     end_val = time.time()
 
@@ -652,10 +650,14 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
     InputValidator.validate_input_shape(
         test_table, MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL, input_shape, 2, True)
 
-    compile_params_query = "SELECT compile_params, metrics_type FROM {0}".format(model_summary_table)
+    compile_params_query = "SELECT compile_params, metrics_type, object_table FROM {0}".format(model_summary_table)
     res = plpy.execute(compile_params_query)[0]
     metrics_type = res['metrics_type']
     compile_params = "$madlib$" + res['compile_params'] + "$madlib$"
+    object_table = res['object_table']
+    fn_map = None
+    if object_table is not None:
+        fn_map = get_custom_functions_map(object_table, compile_params)
 
     dist_key_mapping, images_per_seg = get_image_count_per_seg_for_minibatched_data_from_db(test_table)
 
@@ -663,7 +665,7 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
         get_loss_metric_from_keras_eval(
             schema_madlib, test_table, compile_params, model_arch,
             model_weights, use_gpus, accessible_gpus_for_seg, dist_key_mapping,
-            images_per_seg)
+            images_per_seg, fn_map)
 
     if not metrics_type:
         metrics_type = None
@@ -703,8 +705,7 @@ def validate_evaluate(module_name, model_table, model_summary_table, test_table,
 def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                     model_arch, serialized_weights, use_gpus,
                                     accessible_gpus_for_seg, dist_key_mapping, images_per_seg,
-                                    is_final_iteration=True, object_table=None,
-                                    custom_fn_name=None, custom_fn_col_name='NULL'):
+                                    is_final_iteration=True, custom_fn_name=None):
 
     dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
     gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
@@ -721,15 +722,6 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
     This function will call the internal keras evaluate function to get the loss
     and accuracy of each tuple which then gets averaged to get the final result.
     """
-    use_gpus = use_gpus if use_gpus else False
-    join_txt = ""
-    custom_obj_col_name = "NULL"
-    if object_table is not None:
-        custom_obj_col_name = "c.{0}".format(CustomFunctionSchema.FN_OBJ)
-        join_txt = ", {object_table} c "\
-                   "WHERE c.{custom_fn_col_name} = '{custom_fn_name}'".format(object_table=object_table,
-                                                                              custom_fn_col_name=CustomFunctionSchema.FN_NAME,
-                                                                              custom_fn_name=custom_fn_name)
     evaluate_query = plpy.prepare("""
         select ({schema_madlib}.internal_keras_evaluate(
                                             {mb_dep_var_col},
@@ -747,12 +739,11 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             {use_gpus}::BOOLEAN,
                                             ARRAY{accessible_gpus_for_seg},
                                             {is_final_iteration},
-                                            {custom_obj_col_name}
+                                            $2
                                             )) as loss_metric
         from {table} t
-        {join_txt}--, custom_functions c where c.name = 'keras_custom_loss'
-        """.format(**locals()), ["bytea"])
-    res = plpy.execute(evaluate_query, [serialized_weights])
+        """.format(**locals()), ["bytea", "bytea"])
+    res = plpy.execute(evaluate_query, [serialized_weights, custom_fn_name])
     loss_metric = res[0]['loss_metric']
     return loss_metric
 
