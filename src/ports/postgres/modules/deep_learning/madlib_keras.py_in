@@ -507,6 +507,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         b. keras session is cleared at the end of the final iteration,
         i.e, last row of last iteration.
     """
+    plpy.info(custom_loss_function is not None)
     if not independent_var or not dependent_var:
         return state
     SD = kwargs['SD']
