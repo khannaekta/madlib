@@ -154,7 +154,6 @@ class FitMultipleModel():
         self.msts = self.fit_validator_train.msts
         self.model_arch_table = self.fit_validator_train.model_arch_table
         self.object_table = self.fit_validator_train.object_table
-        plpy.info(self.object_table)
         self.metrics_iters = []
 
         original_cuda_env = None
@@ -192,6 +191,7 @@ class FitMultipleModel():
             self.create_model_output_table()
 
         self.weights_to_update_tbl = unique_string(desp='weights_to_update')
+        self.fn_map = None
         self.fit_multiple_model()
 
         # Update and cleanup metadata tables
@@ -266,9 +266,10 @@ class FitMultipleModel():
             weights = query_weights(self.model_output_table, self.model_weights_col,
                                     self.mst_key_col, mst[self.mst_key_col])
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
-            fn_map = None
-            if self.object_table is not None:
-                fn_map = get_custom_functions_map(self.object_table, mst[self.compile_params_col])
+            # fn_map = None
+            # if self.object_table is not None:
+            #     if self.fn_map is None:
+            #         self.fn_map = get_custom_functions_map(self.object_table, mst[self.compile_params_col])
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
                     mst[self.compile_params_col]),
@@ -279,7 +280,7 @@ class FitMultipleModel():
                 seg_ids,
                 images_per_seg,
                 [], [], epoch, True,
-                fn_map)
+                self.fn_map)
             mst_metric_eval_time[mst[self.mst_key_col]] \
                 .append(time.time() - self.metrics_elapsed_start_time)
             mst_loss[mst[self.mst_key_col]].append(loss)
@@ -305,13 +306,13 @@ class FitMultipleModel():
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(mst_temp_query)
         for mst, dist_key in zip(mst_row, self.dist_keys):
-            fn_map = "NULL"
             if mst:
                 model_id = mst[self.model_id_col]
                 compile_params = mst[self.compile_params_col]
                 fit_params = mst[self.fit_params_col]
                 if self.object_table is not None:
-                    fn_map = get_custom_functions_map(self.object_table, compile_params)
+                    if self.fn_map is None:
+                        self.fn_map = get_custom_functions_map(self.object_table, compile_params)
                 mst_key = mst[self.mst_key_col]
             else:
                 model_id = "NULL"
@@ -328,7 +329,7 @@ class FitMultipleModel():
                                            {mst_key},
                                            $1)
                                 """.format(**locals()), ["BYTEA"])
-            plpy.execute(mst_insert_query, [fn_map])
+            plpy.execute(mst_insert_query, [self.fn_map])
 
 
 

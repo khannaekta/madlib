@@ -311,40 +311,14 @@ def get_optimizers():
     return optimizers
 
 # Run the keras.compile with the given parameters
-def compile_model(model, compile_params, custom_loss_fn):
+def compile_model(model, compile_params, custom_fn_map):
     optimizers = get_optimizers()
     (opt_name,final_args,compile_dict) = parse_and_validate_compile_params(compile_params)
-    # plpy.info(custom_loss_fn)
-    if custom_loss_fn is not None:
+    if custom_fn_map is not None:
         import dill
-        pb=dill.loads(custom_loss_fn)
-        # plpy.info("pb obj")
-        compile_dict['loss']=pb[compile_dict['loss']]
+        map=dill.loads(custom_fn_map)
+        compile_dict['loss']=map[compile_dict['loss']]
     compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
-    # plpy.info(compile_dict)
-    model.compile(**compile_dict)
-
-def compile_model_master(model, compile_params, object_table):
-    plpy.info("compile_model_master")
-    optimizers = get_optimizers()
-    (opt_name,final_args,compile_dict) = parse_and_validate_compile_params(compile_params)
-    plpy.info("Start")
-    plpy.info(compile_dict)
-    # keras_custom_loss_function=custom_loss_fn
-    if object_table:
-        custom_loss_fn = compile_dict['loss']
-        plpy.info("fn_name = {0}".format(custom_loss_fn))
-        from madlib_keras_custom_function import CustomFunctionSchema
-        fn_obj = plpy.execute("SELECT {object} FROM {object_table} WHERE {name}='{fn_name}'".format(object=CustomFunctionSchema.FN_OBJ,
-                                                                                   object_table=object_table,
-                                                                                   name=CustomFunctionSchema.FN_NAME,
-                                                                                   fn_name=custom_loss_fn))[0][CustomFunctionSchema.FN_OBJ]
-        plpy.info("fn_obj")
-        import dill
-        compile_dict['loss']=dill.loads(fn_obj)
-        plpy.info("pb obj")
-    compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
-    plpy.info(compile_dict)
     model.compile(**compile_dict)
 
 def validate_compile_param_types(compile_dict):
@@ -366,25 +340,24 @@ def validate_compile_param_types(compile_dict):
             compile_dict['sample_weight_mode'] == "temporal",
             """compile parameter sample_weight_mode can only be "temporal" or None""")
 
-def get_custom_functions_map(object_table, compile_params):
+# Returns a dictionary object of custom function name and it corresponding object
+def get_custom_functions_map(object_table, compile_params, custom_fn_table = None):
     _, _, compile_dict = parse_and_validate_compile_params(compile_params)
     custom_fn_name = compile_dict['loss']
     custom_obj_col_name = '{0}'.format(CustomFunctionSchema.FN_OBJ)
-    res = plpy.execute("SELECT {custom_obj_col_name} FROM {object_table} " \
-                       "WHERE {custom_fn_col_name} = '{custom_fn_name}'".format(custom_obj_col_name=custom_obj_col_name,
-                                                                                object_table=object_table,
-                                                                                custom_fn_col_name=CustomFunctionSchema.FN_NAME,
-                                                                                custom_fn_name=custom_fn_name))
     custom_fn_map = defaultdict(list)
-    for r in res:
-        custom_fn_map['{0}'.format(custom_fn_name)] = dill.loads(r['{0}'.format(CustomFunctionSchema.FN_OBJ)])
+    # Query the custom function if not yet loaded from table
+    if custom_fn_table is None:
+        res = plpy.execute("SELECT {custom_obj_col_name} FROM {object_table} " \
+                           "WHERE {custom_fn_col_name} = '{custom_fn_name}'".format(custom_obj_col_name=custom_obj_col_name,
+                                                                                    object_table=object_table,
+                                                                                    custom_fn_col_name=CustomFunctionSchema.FN_NAME,
+                                                                                    custom_fn_name=custom_fn_name))[0]
+        custom_fn_map['{0}'.format(custom_fn_name)] = dill.loads(res['{0}'.format(CustomFunctionSchema.FN_OBJ)])
+        plpy.info(custom_fn_map)
+    # Else just read the function object from the table map
+    else:
+        custom_fn_map['{0}'.format(custom_fn_name)] = custom_fn_table['{0}'.format(custom_fn_name)]
+
     custom_fn_map_obj = dill.dumps(custom_fn_map)
-    # res = plpy.execute("SELECT * FROM {table_name}".format(**locals()))
-    # import dill
-    # from collections import defaultdict
-    # custom_fn_map = defaultdict(list)
-    # for r in res:
-    #     custom_fn_map[r['name']] = dill.loads(r['fn'])
-    # plpy.info(custom_fn_map)
-    # return custom_fn_map
     return custom_fn_map_obj
