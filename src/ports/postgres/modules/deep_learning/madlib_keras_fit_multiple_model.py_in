@@ -305,14 +305,27 @@ class FitMultipleModel():
                                  object_map BYTEA)
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(mst_temp_query)
+        builtin_losses = dir(losses)
+        # Track distinct custom functions in compile_params
+        custom_fn_names = []
+        # Track their corresponding mst_keys to pass along the custom function
+        # definition read from the object table.
+        # For compile_params calling builtin functions the object_map is set to
+        # NULL.
+        custom_fn_mst_keys = []
         for mst, dist_key in zip(mst_row, self.dist_keys):
             if mst:
                 model_id = mst[self.model_id_col]
                 compile_params = mst[self.compile_params_col]
                 fit_params = mst[self.fit_params_col]
                 if self.object_table is not None:
-                    if self.fn_map is None:
-                        self.fn_map = get_custom_functions_map(self.object_table, compile_params)
+                    # We assume that the compile_param is validated as part
+                    # of the loading mst_table and thus not validating here
+                    # Also, it is validated later when we compile model
+                    compile_dict = convert_string_of_args_to_dict(compile_params)
+                    if (compile_dict['loss'] not in builtin_losses):
+                        custom_fn_names.append(compile_dict['loss'])
+                        custom_fn_mst_keys.append(mst[self.mst_key_col])
                 mst_key = mst[self.mst_key_col]
             else:
                 model_id = "NULL"
@@ -329,8 +342,16 @@ class FitMultipleModel():
                                            {mst_key},
                                            $1)
                                 """.format(**locals()), ["BYTEA"])
-            plpy.execute(mst_insert_query, [self.fn_map])
-
+            plpy.execute(mst_insert_query, [None])
+        if len(custom_fn_names) > 0:
+            if self.fn_map is None:
+                self.fn_map = get_custom_functions_map(self.object_table, list(set(custom_fn_names)))
+            update_query = plpy.prepare("""
+                UPDATE {self.mst_current_schedule_tbl}
+                    SET object_map = $1
+                    WHERE {self.mst_key_col} = ANY(ARRAY{custom_fn_mst_keys})  
+                 """.format(**locals()), ["BYTEA"])
+            plpy.execute(update_query, [self.fn_map])
 
 
     def create_model_output_table(self):

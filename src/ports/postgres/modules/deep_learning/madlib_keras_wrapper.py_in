@@ -341,23 +341,16 @@ def validate_compile_param_types(compile_dict):
             """compile parameter sample_weight_mode can only be "temporal" or None""")
 
 # Returns a dictionary object of custom function name and it corresponding object
-def get_custom_functions_map(object_table, compile_params, custom_fn_table = None):
-    _, _, compile_dict = parse_and_validate_compile_params(compile_params)
-    custom_fn_name = compile_dict['loss']
+def get_custom_functions_map(object_table, custom_fn_names):
     custom_obj_col_name = '{0}'.format(CustomFunctionSchema.FN_OBJ)
     custom_fn_map = defaultdict(list)
     # Query the custom function if not yet loaded from table
-    if custom_fn_table is None:
-        res = plpy.execute("SELECT {custom_obj_col_name} FROM {object_table} " \
-                           "WHERE {custom_fn_col_name} = '{custom_fn_name}'".format(custom_obj_col_name=custom_obj_col_name,
-                                                                                    object_table=object_table,
-                                                                                    custom_fn_col_name=CustomFunctionSchema.FN_NAME,
-                                                                                    custom_fn_name=custom_fn_name))[0]
-        custom_fn_map['{0}'.format(custom_fn_name)] = dill.loads(res['{0}'.format(CustomFunctionSchema.FN_OBJ)])
-        plpy.info(custom_fn_map)
-    # Else just read the function object from the table map
-    else:
-        custom_fn_map['{0}'.format(custom_fn_name)] = custom_fn_table['{0}'.format(custom_fn_name)]
-
+    res = plpy.execute("SELECT {custom_fn_col_name}, {custom_obj_col_name} FROM {object_table} " \
+                       "WHERE {custom_fn_col_name} = ANY(ARRAY{custom_fn_names})".format(custom_obj_col_name=custom_obj_col_name,
+                                                                                object_table=object_table,
+                                                                                custom_fn_col_name=CustomFunctionSchema.FN_NAME,
+                                                                                custom_fn_names=custom_fn_names))
+    for r in res:
+        custom_fn_map[r[CustomFunctionSchema.FN_NAME]] = dill.loads(r[custom_obj_col_name])
     custom_fn_map_obj = dill.dumps(custom_fn_map)
     return custom_fn_map_obj

@@ -29,7 +29,7 @@ m4_include(`SQLCommon.m4')
 CREATE SCHEMA __MADLIB__DEEP_LEARNING_SCHEMA__MADLIB__;
 DROP TABLE IF EXISTS iris_model, iris_model_summary;
 SELECT madlib_keras_fit('iris_data_packed',   -- source table
-                        'iris_model',          -- model output table
+                        '__MADLIB__DEEP_LEARNING_SCHEMA__MADLIB__.iris_model',          -- model output table
                         'iris_model_arch',  -- model arch table
                          1,                    -- model arch id
                          $$ loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'] $$,  -- compile_params
