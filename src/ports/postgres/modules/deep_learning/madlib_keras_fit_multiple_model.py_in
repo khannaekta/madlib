@@ -515,6 +515,7 @@ class FitMultipleModel():
                     $MAD${independent_varname}$MAD$::TEXT AS independent_varname,
                     $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
                     $MAD${self.model_selection_table}$MAD$::TEXT AS model_selection_table,
+                    $MAD${self.object_table}$MAD$::TEXT AS object_table,
                     {self.num_iterations}::INTEGER AS num_iterations,
                     {self.metrics_compute_frequency}::INTEGER AS metrics_compute_frequency,
                     {self.warm_start} AS warm_start,

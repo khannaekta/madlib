@@ -642,7 +642,7 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
     object_table = res['object_table']
     fn_map = None
     if object_table is not None:
-        compile_dict = convert_string_of_args_to_dict(compile_params)
+        compile_dict = convert_string_of_args_to_dict(res['compile_params'])
         builtin_losses = dir(losses)
         custom_fn_name = []
         if compile_dict['loss'] not in builtin_losses:
