@@ -1509,7 +1509,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition_multiple_model(
     accessible_gpus_for_seg               INTEGER[],
     prev_serialized_weights    BYTEA,
     is_final_iteration         BOOLEAN,
-    custom_loss_function       BYTEA
+    custom_function_map        BYTEA
 ) RETURNS BYTEA AS $$
 PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
     return madlib_keras.fit_transition(is_multiple_model = True, **globals())

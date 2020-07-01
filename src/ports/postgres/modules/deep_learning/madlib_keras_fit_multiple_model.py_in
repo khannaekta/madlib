@@ -191,7 +191,7 @@ class FitMultipleModel():
             self.create_model_output_table()
 
         self.weights_to_update_tbl = unique_string(desp='weights_to_update')
-        self.fn_map = None
+        self.custom_function_map = None
         self.fit_multiple_model()
 
         # Update and cleanup metadata tables
@@ -266,10 +266,6 @@ class FitMultipleModel():
             weights = query_weights(self.model_output_table, self.model_weights_col,
                                     self.mst_key_col, mst[self.mst_key_col])
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
-            # fn_map = None
-            # if self.object_table is not None:
-            #     if self.fn_map is None:
-            #         self.fn_map = get_custom_functions_map(self.object_table, mst[self.compile_params_col])
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
                     mst[self.compile_params_col]),
@@ -280,7 +276,7 @@ class FitMultipleModel():
                 seg_ids,
                 images_per_seg,
                 [], [], epoch, True,
-                self.fn_map)
+                self.custom_function_map)
             mst_metric_eval_time[mst[self.mst_key_col]] \
                 .append(time.time() - self.metrics_elapsed_start_time)
             mst_loss[mst[self.mst_key_col]].append(loss)
@@ -321,7 +317,8 @@ class FitMultipleModel():
                 if self.object_table is not None:
                     # We assume that the compile_param is validated as part
                     # of the loading mst_table and thus not validating here
-                    # Also, it is validated later when we compile model
+                    # Also, it is validated later when we compile the model
+                    # on the segments
                     compile_dict = convert_string_of_args_to_dict(compile_params)
                     if (compile_dict['loss'] not in builtin_losses):
                         custom_fn_names.append(compile_dict['loss'])
@@ -344,14 +341,14 @@ class FitMultipleModel():
                                 """.format(**locals()), ["BYTEA"])
             plpy.execute(mst_insert_query, [None])
         if len(custom_fn_names) > 0:
-            if self.fn_map is None:
-                self.fn_map = get_custom_functions_map(self.object_table, list(set(custom_fn_names)))
+            if self.custom_function_map is None:
+                self.custom_function_map = query_custom_functions_map(self.object_table, list(set(custom_fn_names)))
             update_query = plpy.prepare("""
                 UPDATE {self.mst_current_schedule_tbl}
                     SET object_map = $1
-                    WHERE {self.mst_key_col} = ANY(ARRAY{custom_fn_mst_keys})  
+                    WHERE {self.mst_key_col} = ANY(ARRAY{custom_fn_mst_keys})
                  """.format(**locals()), ["BYTEA"])
-            plpy.execute(update_query, [self.fn_map])
+            plpy.execute(update_query, [self.custom_function_map])
 
 
     def create_model_output_table(self):
@@ -499,6 +496,8 @@ class FitMultipleModel():
             num_classes = len(class_values)
         name = 'NULL' if self.name is None else '$MAD${0}$MAD$'.format(self.name)
         descr = 'NULL' if self.description is None else '$MAD${0}$MAD$'.format(self.description)
+        object_table = 'NULL' if self.object_table is None \
+            else '$MAD${0}$MAD$'.format(self.object_table)
         metrics_iters = self.metrics_iters if self.metrics_iters else 'NULL'
         class_values_colname = CLASS_VALUES_COLNAME
         dependent_vartype_colname = DEPENDENT_VARTYPE_COLNAME
@@ -515,7 +514,7 @@ class FitMultipleModel():
                     $MAD${independent_varname}$MAD$::TEXT AS independent_varname,
                     $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
                     $MAD${self.model_selection_table}$MAD$::TEXT AS model_selection_table,
-                    $MAD${self.object_table}$MAD$::TEXT AS object_table,
+                    {object_table}::TEXT AS object_table,
                     {self.num_iterations}::INTEGER AS num_iterations,
                     {self.metrics_compute_frequency}::INTEGER AS metrics_compute_frequency,
                     {self.warm_start} AS warm_start,

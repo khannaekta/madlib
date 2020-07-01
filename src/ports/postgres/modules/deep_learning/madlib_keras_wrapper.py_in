@@ -311,12 +311,12 @@ def get_optimizers():
     return optimizers
 
 # Run the keras.compile with the given parameters
-def compile_model(model, compile_params, custom_fn_map=None):
+def compile_model(model, compile_params, custom_function_map=None):
     optimizers = get_optimizers()
     (opt_name,final_args,compile_dict) = parse_and_validate_compile_params(compile_params)
-    if custom_fn_map is not None:
+    if custom_function_map is not None:
         import dill
-        map=dill.loads(custom_fn_map)
+        map=dill.loads(custom_function_map)
         compile_dict['loss']=map[compile_dict['loss']]
     compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
     model.compile(**compile_dict)
@@ -341,7 +341,9 @@ def validate_compile_param_types(compile_dict):
             """compile parameter sample_weight_mode can only be "temporal" or None""")
 
 # Returns a dictionary object of custom function name and it corresponding object
-def get_custom_functions_map(object_table, custom_fn_names):
+def query_custom_functions_map(object_table, custom_fn_names):
+    if len(custom_fn_names) < 1:
+        return None
     custom_obj_col_name = '{0}'.format(CustomFunctionSchema.FN_OBJ)
     custom_fn_map = defaultdict(list)
     # Query the custom function if not yet loaded from table
@@ -354,3 +356,11 @@ def get_custom_functions_map(object_table, custom_fn_names):
         custom_fn_map[r[CustomFunctionSchema.FN_NAME]] = dill.loads(r[custom_obj_col_name])
     custom_fn_map_obj = dill.dumps(custom_fn_map)
     return custom_fn_map_obj
+
+def get_custom_functions_list(compile_params):
+    compile_dict = convert_string_of_args_to_dict(compile_params)
+    builtin_losses = dir(losses)
+    custom_fn_list = []
+    if compile_dict['loss'] not in builtin_losses:
+        custom_fn_list.append(compile_dict['loss'])
+    return custom_fn_list
