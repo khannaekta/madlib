@@ -151,9 +151,11 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # If the object_table exists, we read the list of custom
     # function used in the compile_params and map it to their
     # object definition from the object table
+    custom_fn_list = get_custom_functions_list(compile_params)
     if object_table is not None:
-        custom_fn_list = get_custom_functions_list(compile_params)
         custom_function_map = query_custom_functions_map(object_table, custom_fn_list)
+    elif len(custom_fn_list) >= 1 and object_table is None:
+        plpy.error("Object table not specified for function {0} in compile_params".format(custom_fn_list))
 
     run_training_iteration = plpy.prepare("""
         SELECT {schema_madlib}.fit_step(
@@ -638,6 +640,7 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
     metrics_type = res['metrics_type']
     compile_params = "$madlib$" + res['compile_params'] + "$madlib$"
     object_table = res['object_table']
+    loss_type = get_loss_from_compile_param(res['compile_params'])
     custom_function_map = None
     if object_table is not None:
         custom_fn_list = get_custom_functions_list(res['compile_params'])
@@ -658,8 +661,8 @@ def evaluate(schema_madlib, model_table, test_table, output_table,
     with MinWarning("error"):
         create_output_table = plpy.prepare("""
             CREATE TABLE {0} AS
-            SELECT $1 as loss, $2 as metric, $3 as metrics_type""".format(output_table), ["FLOAT", "FLOAT", "TEXT[]"])
-        plpy.execute(create_output_table, [loss, metric, metrics_type])
+            SELECT $1 as loss, $2 as metric, $3 as metrics_type, $4 as loss_type""".format(output_table), ["FLOAT", "FLOAT", "TEXT[]", "TEXT"])
+        plpy.execute(create_output_table, [loss, metric, metrics_type, loss_type])
 
     if is_mult_model:
         plpy.execute("DROP VIEW IF EXISTS {0}".format(model_summary_table))

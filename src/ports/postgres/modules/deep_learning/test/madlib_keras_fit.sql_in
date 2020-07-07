@@ -83,75 +83,6 @@ SELECT assert(
         model_arch IS NOT NULL, 'Keras model output validation failed. Actual:' || __to_char(k))
 FROM (SELECT * FROM keras_saved_out) k;
 
--- TEST custom loss function
--- Custom loss function returns 0 as the loss
-CREATE OR REPLACE FUNCTION custom_function_zero_object()
-RETURNS BYTEA AS
-$$
-import dill
-def test_custom_fn(a, b):
-  c = a*b*0
-  return c
-
-pb=dill.dumps(test_custom_fn)
-return pb
-$$ language plpythonu;
-
-
-DROP TABLE IF EXISTS test_custom_function_table;
-SELECT load_custom_function('test_custom_function_table', custom_function_zero_object(), 'test_custom_fn', 'returns test_custom_fn');
-
-DROP TABLE IF EXISTS keras_saved_out, keras_saved_out_summary;
-SELECT madlib_keras_fit(
-    'cifar_10_sample_batched',
-    'keras_saved_out',
-    'model_arch',
-    1,
-    $$ optimizer=SGD(lr=0.01, decay=1e-6, nesterov=True), loss='test_custom_fn', metrics=['mae']$$::text,
-    $$ batch_size=2, epochs=1, verbose=0 $$::text,
-    3,
-    FALSE, NULL, 1, NULL, NULL, NULL,
-    'test_custom_function_table'
-);
-
-SELECT assert(
-        model_arch_table = 'model_arch' AND
-        model_id = 1 AND
-        model_type = 'madlib_keras' AND
-        start_training_time         < now() AND
-        end_training_time > start_training_time AND
-        source_table = 'cifar_10_sample_batched' AND
-        model = 'keras_saved_out' AND
-        dependent_varname = 'y' AND
-        dependent_vartype = 'smallint' AND
-        independent_varname = 'x' AND
-        normalizing_const = 255.0 AND
-        pg_typeof(normalizing_const) = 'real'::regtype AND
-        name is NULL AND
-        description is NULL AND
-        object_table = 'test_custom_function_table' AND
-        model_size > 0 AND
-        madlib_version is NOT NULL AND
-        compile_params = $$ optimizer=SGD(lr=0.01, decay=1e-6, nesterov=True), loss='test_custom_fn', metrics=['mae']$$::text AND
-        fit_params = $$ batch_size=2, epochs=1, verbose=0 $$::text AND
-        num_iterations = 3 AND
-        metrics_compute_frequency = 1 AND
-        num_classes = 2 AND
-        class_values = '{0,1}' AND
-        metrics_type = '{mae}' AND
-        training_metrics_final >= 0  AND
-        training_loss_final  >= 0  AND
-        array_upper(training_metrics, 1) = 3 AND
-        training_loss = '{0,0,0}' AND
-        array_upper(metrics_elapsed_time, 1) = 3 ,
-        'Keras model output Summary Validation failed. Actual:' || __to_char(summary))
-FROM (SELECT * FROM keras_saved_out_summary) summary;
-
-SELECT assert(
-        model_weights IS NOT NULL AND
-        model_arch IS NOT NULL, 'Keras model output validation failed. Actual:' || __to_char(k))
-FROM (SELECT * FROM keras_saved_out) k;
-
 -- Verify number of iterations for which metrics and loss are computed
 DROP TABLE IF EXISTS keras_saved_out, keras_saved_out_summary;
 SELECT madlib_keras_fit(
@@ -487,3 +418,15 @@ SELECT madlib_keras_fit(
     $$ optimizer=SGD(lr=0.01, decay=1e-6, nesterov=True), loss='categorical_crossentropy', metrics=['accuracy']$$::text,
     $$ batch_size=2, epochs=1, verbose=0 $$::text,
     3);
+
+-- Test invalid loss function in compile_param
+DROP TABLE IF EXISTS keras_saved_out, keras_saved_out_summary;
+SELECT assert(trap_error($TRAP$SELECT madlib_keras_fit(
+    'cifar_10_sample_test_shape_batched',
+    'keras_saved_out',
+    'model_arch',
+    3,
+    $$ optimizer=SGD(lr=0.01, decay=1e-6, nesterov=True), loss='custom_fn', metrics=['accuracy']$$::text,
+    $$ batch_size=2, epochs=1, verbose=0 $$::text,
+    3);$TRAP$) = 1,
+    'Object table not specified for custom function in compile_params.');

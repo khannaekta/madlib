@@ -179,6 +179,17 @@ def get_metrics_from_compile_param(str_of_args):
                         "please refer to the documentation").format(ckey))
     return metrics
 
+def get_loss_from_compile_param(str_of_args):
+    compile_dict = convert_string_of_args_to_dict(str_of_args)
+    loss = None
+    ckey = 'loss'
+    if ckey in compile_dict:
+        loss = compile_dict[ckey]
+    else:
+        plpy.error(("Invalid input value for parameter {0}, "
+                    "please refer to the documentation").format(ckey))
+    return loss
+
 # Parse the compile parameters and the optimizer.
 def parse_and_validate_compile_params(str_of_args):
     """
@@ -352,6 +363,8 @@ def query_custom_functions_map(object_table, custom_fn_names):
                                                                                 object_table=object_table,
                                                                                 custom_fn_col_name=CustomFunctionSchema.FN_NAME,
                                                                                 custom_fn_names=custom_fn_names))
+    if res.nrows() == 0:
+        plpy.error("Custom function {0} not defined in object table '{1}'".format(custom_fn_names, object_table))
     for r in res:
         custom_fn_map[r[CustomFunctionSchema.FN_NAME]] = dill.loads(r[custom_obj_col_name])
     custom_fn_map_obj = dill.dumps(custom_fn_map)
