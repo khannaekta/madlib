@@ -168,7 +168,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             {fit_params_to_pass}::TEXT,
             {dist_key_col},
             ARRAY{dist_key_mapping},
-            src.{gp_segment_id_col},
+            {gp_segment_id_col},
             {segments_per_host},
             ARRAY{images_per_seg_train},
             {use_gpus}::BOOLEAN,
@@ -177,7 +177,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             $2,
             $3
         ) AS iteration_result
-        FROM {source_table} src
+        FROM {source_table}
         """.format(**locals()), ["bytea", "boolean", "bytea"])
 
     # Define the state for the model and loss/metric storage lists
