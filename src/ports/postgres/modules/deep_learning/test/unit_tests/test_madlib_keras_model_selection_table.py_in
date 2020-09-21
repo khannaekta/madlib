@@ -38,7 +38,8 @@ class GenerateModelSelectionConfigsTestCase(unittest.TestCase):
         # tested here. They are tested in dev-check.
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -333,7 +334,8 @@ class LoadModelSelectionTableTestCase(unittest.TestCase):
         # tested here. They are tested in dev-check.
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -452,7 +454,8 @@ class MstLoaderInputValidatorTestCase(unittest.TestCase):
         # tested here. They are tested in dev-check.
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
