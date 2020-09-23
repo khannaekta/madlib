@@ -851,24 +851,6 @@ class MadlibKerasWrapperTestCase(unittest.TestCase):
         with self.assertRaises(plpy.PLPYException) as error:
             self.subject._validate_metrics(compile_dict)
 
-    def test_validate_metrics_one_unsupported_fail(self):
-        compile_dict = {'optimizer':'SGD(lr=0.01, decay=1e-6, nesterov=True)',
-                        'metrics':['sparse_categorical_accuracy'], 'loss':'categorical_crossentropy'}
-        with self.assertRaises(plpy.PLPYException) as error:
-            self.subject._validate_metrics(compile_dict)
-
-    def test_validate_metrics_two_unsupported_fail(self):
-        compile_dict = {'optimizer':'SGD(lr=0.01, decay=1e-6, nesterov=True)',
-                        'metrics':['sparse_categorical_accuracy', 'sparse_categorical_crossentropy'], 'loss':'categorical_crossentropy'}
-        with self.assertRaises(plpy.PLPYException) as error:
-            self.subject._validate_metrics(compile_dict)
-
-    def test_validate_metrics_one_supported_one_unsupported_fail(self):
-        compile_dict = {'optimizer':'SGD(lr=0.01, decay=1e-6, nesterov=True)',
-                        'metrics':['accuracy', 'sparse_categorical_crossentropy'], 'loss':'categorical_crossentropy'}
-        with self.assertRaises(plpy.PLPYException) as error:
-            self.subject._validate_metrics(compile_dict)
-
     def test_parse_and_validate_compile_params_default_optimizer_pass(self):
         test_str = "optimizer='SGD', loss='categorical_crossentropy'"
         _,_,result_dict = self.subject.parse_and_validate_compile_params(test_str)

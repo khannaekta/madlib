@@ -146,6 +146,43 @@ def update_builtin_metrics(builtin_metrics):
     builtin_metrics.append('ce')
     return builtin_metrics
 
+@MinWarning("error")
+def load_top_n_accuracy_function(schema_madlib, object_table, n, is_sparse, **kwargs):
+
+    object_table = quote_ident(object_table)
+    _assert(n > 0,
+        "{0}: For top n accuracy functions n has to be a positive integer.".format(module_name))
+    sparse_prefix = "sparse_" if is_sparse else ""
+
+    sql = """
+    CREATE OR REPLACE FUNCTION __madlib__{sparse_prefix}top_{n}_acc_pickled()
+    RETURNS BYTEA AS
+    $$
+    import dill
+    from keras.metrics import {sparse_prefix}top_k_categorical_accuracy
+
+    def {sparse_prefix}top_{n}_accuracy(Y_true, Y_pred):
+      return top_k_categorical_accuracy(Y_true,
+                                        Y_pred,
+                                        k = {n})
+
+    pb=dill.dumps({sparse_prefix}top_{n}_accuracy)
+    return pb
+    $$ language plpythonu;
+    """.format(**locals())
+    plpy.execute(sql)
+
+    sql = """
+        SELECT  {schema_madlib}.load_custom_function(\'{object_table}\',
+                __madlib__{sparse_prefix}top_{n}_acc_pickled(),
+                \'{sparse_prefix}top_{n}_accuracy\',
+                \'returns {sparse_prefix}top_{n}_accuracy\');
+
+        """.format(**locals())
+    plpy.execute(sql)
+
+    plpy.execute("DROP FUNCTION __madlib__{sparse_prefix}top_{n}_acc_pickled()".format(**locals()))
+    return
 
 class KerasCustomFunctionDocumentation:
     @staticmethod
@@ -250,3 +287,47 @@ class KerasCustomFunctionDocumentation:
 
         return KerasCustomFunctionDocumentation._returnHelpMsg(
             schema_madlib, message, summary, usage, method)
+
+    @staticmethod
+    def load_top_n_accuracy_function_help(schema_madlib, message):
+        method = "load_top_n_accuracy_function"
+        summary = """
+        ----------------------------------------------------------------
+                            SUMMARY
+        ----------------------------------------------------------------
+        The user can specify a custom n value for top_n_accuracy metric.
+        If the output table already exists, the custom function specified
+        will be added as a new row into the table. The output table could
+        thus act as a repository of Keras custom functions.
+
+        For more details on function usage:
+        SELECT {schema_madlib}.{method}('usage')
+        """.format(**locals())
+
+        usage = """
+        ---------------------------------------------------------------------------
+                                        USAGE
+        ---------------------------------------------------------------------------
+        SELECT {schema_madlib}.{method}(
+            object_table,       --  VARCHAR. Output table to load custom function.
+            n,                  --  INTEGER. The number of samples for top n accuracy
+            is_sparse           --  BOOLEAN. Flag for choosing the sparse
+                                --           version of the function
+        );
+
+
+        ---------------------------------------------------------------------------
+                                        OUTPUT
+        ---------------------------------------------------------------------------
+        The output table produced by load_top_n_accuracy_function contains the following columns:
+
+        'id'                    -- SERIAL. Function ID.
+        'name'                  -- TEXT PRIMARY KEY. unique function name.
+        'description'           -- TEXT. function description.
+        'object'                -- BYTEA. dill pickled function object.
+
+        """.format(**locals())
+
+        return KerasCustomFunctionDocumentation._returnHelpMsg(
+            schema_madlib, message, summary, usage, method)
+    # ---------------------------------------------------------------------
