@@ -153,35 +153,15 @@ def load_top_n_accuracy_function(schema_madlib, object_table, n, is_sparse, **kw
     _assert(n > 0,
         "{0}: For top n accuracy functions n has to be a positive integer.".format(module_name))
     sparse_prefix = "sparse_" if is_sparse else ""
-
-    sql = """
-    CREATE OR REPLACE FUNCTION __madlib__{sparse_prefix}top_{n}_acc_pickled()
-    RETURNS BYTEA AS
-    $$
-    import dill
-    from keras.metrics import {sparse_prefix}top_k_categorical_accuracy
-
-    def {sparse_prefix}top_{n}_accuracy(Y_true, Y_pred):
-      return top_k_categorical_accuracy(Y_true,
-                                        Y_pred,
-                                        k = {n})
-
-    pb=dill.dumps({sparse_prefix}top_{n}_accuracy)
-    return pb
-    $$ language plpythonu;
-    """.format(**locals())
-    plpy.execute(sql)
+    fn_name = "{sparse_prefix}top_{n}_accuracy".format(**locals())
 
     sql = """
         SELECT  {schema_madlib}.load_custom_function(\'{object_table}\',
-                __madlib__{sparse_prefix}top_{n}_acc_pickled(),
-                \'{sparse_prefix}top_{n}_accuracy\',
-                \'returns {sparse_prefix}top_{n}_accuracy\');
-
+                {schema_madlib}.{sparse_prefix}top_k_categorical_acc_pickled({n}, \'{fn_name}\'),
+                \'{fn_name}\',
+                \'returns {fn_name}\');
         """.format(**locals())
     plpy.execute(sql)
-
-    plpy.execute("DROP FUNCTION __madlib__{sparse_prefix}top_{n}_acc_pickled()".format(**locals()))
     return
 
 class KerasCustomFunctionDocumentation:
