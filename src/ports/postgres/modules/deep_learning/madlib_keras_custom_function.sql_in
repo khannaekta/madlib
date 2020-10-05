@@ -158,8 +158,7 @@ Load a top n function with a specific n to the custom functions table.
 <pre class="syntax">
 load_top_n_accuracy_function(
     object table,
-    n,
-    is_sparse
+    n
     )
 </pre>
 \b Arguments
@@ -172,10 +171,6 @@ load_top_n_accuracy_function(
 
   <dt>n</dt>
   <dd>INTEGER. n value for the top n accuracy function.
-  </dd>
-
-  <dt>is_sparse (optional)</dt>
-  <dd>BOOLEAN, default: FALSE. Flag to select the sparse version of the function.
   </dd>
 
 </dl>
@@ -398,8 +393,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 -- Top n accuracy function
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.load_top_n_accuracy_function(
     object_table            VARCHAR,
-    n                       INTEGER,
-    is_sparse               BOOLEAN DEFAULT FALSE
+    n                       INTEGER
 ) RETURNS VOID AS $$
     PythonFunctionBodyOnly(`deep_learning', `madlib_keras_custom_function')
     with AOControl(False):
@@ -433,28 +427,7 @@ fn_name VARCHAR
         return top_k_categorical_accuracy(Y_true,
                                           Y_pred,
                                           k = n)
-
     fn.__name__= fn_name
-
-    pb=dill.dumps(fn)
-    return pb
-$$ language plpythonu
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
-
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.sparse_top_k_categorical_acc_pickled(
-n INTEGER,
-fn_name VARCHAR
-) RETURNS BYTEA AS $$
-    import dill
-    from keras.metrics import sparse_top_k_categorical_accuracy
-
-    def fn(Y_true, Y_pred):
-        return sparse_top_k_categorical_accuracy(Y_true,
-                                          Y_pred,
-                                          k = n)
-
-    fn.__name__= fn_name
-
     pb=dill.dumps(fn)
     return pb
 $$ language plpythonu
