@@ -51,7 +51,8 @@ class MadlibKerasFitTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -691,7 +692,8 @@ class InternalKerasPredictTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -795,7 +797,8 @@ class MadlibKerasPredictBYOMTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -877,7 +880,8 @@ class MadlibKerasWrapperTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -1203,7 +1207,8 @@ class MadlibKerasFitCommonValidatorTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -1255,7 +1260,8 @@ class InputValidatorTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -1375,7 +1381,8 @@ class MadlibSerializerTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
@@ -1578,7 +1585,8 @@ class MadlibKerasEvaluationTestCase(unittest.TestCase):
     def setUp(self):
         self.plpy_mock = Mock(spec='error')
         patches = {
-            'plpy': plpy
+            'plpy': plpy,
+            'utilities.mean_std_dev_calculator': Mock()
         }
 
         self.plpy_mock_execute = MagicMock()
