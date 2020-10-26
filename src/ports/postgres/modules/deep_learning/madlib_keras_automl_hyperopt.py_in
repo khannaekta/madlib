@@ -91,6 +91,9 @@ class AutoMLHyperopt(KerasAutoML):
                                                      lower_case_names=True)
         # casting relevant values to int
         for i in automl_params_dict:
+            _assert(i in AutoMLConstants.HYPEROPT_PARAMS,
+                    "{0}: Invalid param(s) passed in for hyperopt. "\
+                    "Only num_configs, num_iterations, and algorithm may be specified".format(self.module_name))
             try:
                 automl_params_dict[i] = int(automl_params_dict[i])
             except ValueError:

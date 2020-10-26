@@ -37,6 +37,7 @@ class AutoMLConstants:
     R = 'R'
     ETA = 'eta'
     SKIP_LAST = 'skip_last'
+    HYPERBAND_PARAMS = [R, ETA, SKIP_LAST]
     LOSS_METRIC = 'training_loss_final'
     TEMP_MST_TABLE = unique_string('temp_mst_table')
     TEMP_MST_SUMMARY_TABLE = add_postfix(TEMP_MST_TABLE, '_summary')
@@ -45,6 +46,7 @@ class AutoMLConstants:
     NUM_CONFIGS = 'num_configs'
     NUM_ITERS = 'num_iterations'
     ALGORITHM = 'algorithm'
+    HYPEROPT_PARAMS = [NUM_CONFIGS, NUM_ITERS, ALGORITHM]
     TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
     INT_MAX = 2 ** 31 - 1
     TARGET_SCHEMA = 'public'

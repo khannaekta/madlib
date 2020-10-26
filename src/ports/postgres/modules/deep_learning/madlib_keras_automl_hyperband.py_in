@@ -172,6 +172,9 @@ class AutoMLHyperband(KerasAutoML):
                                                      lower_case_names=False)
         # casting dict values to int
         for i in automl_params_dict:
+            _assert(i in AutoMLConstants.HYPERBAND_PARAMS,
+                    "{0}: Invalid param(s) passed in for hyperband. "\
+                    "Only R, eta, and skip_last may be specified".format(self.module_name))
             automl_params_dict[i] = int(automl_params_dict[i])
         _assert(len(automl_params_dict) >= 1 and len(automl_params_dict) <= 3,
                 "{0}: Only R, eta, and skip_last may be specified".format(self.module_name))
