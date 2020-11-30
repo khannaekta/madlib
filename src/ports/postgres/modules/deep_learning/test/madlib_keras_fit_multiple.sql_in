@@ -1,4 +1,8 @@
 m4_include(`SQLCommon.m4')
+m4_changequote(<<<,>>>)
+m4_ifdef(<<<__POSTGRESQL__>>>, -- Skip all fit multiple tests for postgres
+,<<<
+m4_changequote(<!,!>)
 
 -- =================== Setup & Initialization for FitMultiple tests ========================
 --
@@ -17,66 +21,40 @@ m4_include(`SQLCommon.m4')
 --  able to run on a single dev host.
 
 \i m4_regexp(MODULE_PATHNAME,
-             `\(.*\)libmadlib\.so',
-            `\1../../modules/deep_learning/test/madlib_keras_iris.setup.sql_in'
+             <!\(.*\)libmadlib\.so!>,
+            <!\1../../modules/deep_learning/test/madlib_keras_iris.setup.sql_in!>
 )
 
--- Dummy source table for initializing FitMultiple object
-CREATE TABLE dummy_source (LIKE iris_data_packed);
-INSERT INTO dummy_source (dependent_var, independent_var, __dist_key__) VALUES(NULL, NULL,  0);
-
--- Dummy source_summary table for initializing FitMultiple object
-CREATE TABLE dummy_source_summary (LIKE iris_data_packed_summary);
---CREATE TABLE dummy_source_summary (
---    source_table TEXT,
---    output_table TEXT,
---    dependent_varname TEXT,
---    independent_varname TEXT,
---    dependent_vartype       TEXT,
---    class_values            TEXT[],
---    buffer_size             INTEGER,
---    normalizing_const       REAL,
---    num_classes             TEXT,
---    distribution_rules      TEXT,
---    __internal_gpu_config__ TEXT
---);
-INSERT INTO dummy_source_summary VALUES('dummy_source', 'model_out', 'y', 'x', NULL, NULL, 1, 1.0, '1', 'all_segments', '');
-
 -- Mock version() function to convince the InputValidator this is the real madlib schema
-CREATE FUNCTION madlib_installcheck_deep_learning.version() RETURNS VARCHAR AS
+CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.version() RETURNS VARCHAR AS
 $$
     SELECT MADLIB_SCHEMA.version();
 $$ LANGUAGE sql IMMUTABLE;
 
 -- Call this first to initialize the FitMultiple object, before anything else happens.
--- Pass a real mst table, rest of FitMultipleModel() constructor params are filled in with dummy values.
---  Later, they can be overriden with real values appropriate for specific tests.
+-- Pass a real mst table and source table, rest of FitMultipleModel() constructor params
+--  are filled in.  The can be overriden later, before test functions are called, if necessary.
 CREATE OR REPLACE FUNCTION init_fit_mult(
+    source_table            VARCHAR,
     model_selection_table   VARCHAR
 ) RETURNS VOID AS
 $$
     import sys
     from mock import Mock, patch
 
-    PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
+    PythonFunctionBodyOnlyNoSchema(deep_learning,madlib_keras_fit_multiple_model)
     schema_madlib = 'madlib_installcheck_deep_learning'
 
-    @patch('deep_learning.madlib_keras_fit_multiple_model.get_image_count_per_seg_for_minibatched_data_from_db',
-        return_value=([0,  1,  2],  [10,  10,  10]))
-    def initialize_fit_mult(c1):
-        return madlib_keras_fit_multiple_model.FitMultipleModel(
-            schema_madlib,
-            'dummy_source',
-            'dummy_model_out',
-            model_selection_table,
-            1
-        )
-
-    fit_mult = initialize_fit_mult()
-    GD['fit_mult'] = fit_mult
+    GD['fit_mult'] = madlib_keras_fit_multiple_model.FitMultipleModel(
+        schema_madlib,
+        source_table,
+        'orig_model_out',
+        model_selection_table,
+        1
+    )
     
 $$ LANGUAGE plpythonu VOLATILE
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+m4_ifdef(<!__HAS_FUNCTION_PROPERTIES__!>, MODIFIES SQL DATA);
 
 CREATE OR REPLACE FUNCTION test_init_schedule(
     schedule_table VARCHAR
@@ -92,30 +70,25 @@ $$
 
     return err_msg
 $$ LANGUAGE plpythonu VOLATILE
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__',MODIFIES SQL DATA);
 
 CREATE OR REPLACE FUNCTION test_rotate_schedule(
     schedule_table          VARCHAR
-) RETURNS BOOLEAN AS
+) RETURNS VOID AS
 $$
     fit_mult = GD['fit_mult']
 
     if fit_mult.schedule_tbl != schedule_table:
         fit_mult.init_schedule_tbl()
 
-    if fit_mult.rotate_schedule_tbl():
-        err_msg = None
-    else:
-        err_msg = 'FitMultiple.rotate_schedule_tbl() returned False'
+    fit_mult.rotate_schedule_tbl()
 
-    return err_msg
 $$ LANGUAGE plpythonu VOLATILE
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__',MODIFIES SQL DATA);
 
 -- Mock fit_transition function, for testing
 --  madlib_keras_fit_multiple_model() python code
-CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
-    state                       BYTEA,
+CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition_multiple_model(
     dependent_var               BYTEA,
     independent_var             BYTEA,
     dependent_var_shape         INTEGER[],
@@ -128,46 +101,191 @@ CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     current_seg_id              INTEGER,
     segments_per_host           INTEGER,
     images_per_seg              INTEGER[],
-    use_gpus                    BOOLEAN,
     accessible_gpus_for_seg     INTEGER[],
-    prev_serialized_weights     BYTEA,
+    serialized_weights          BYTEA,
     is_final_training_call      BOOLEAN,
     use_caching                 BOOLEAN,
     custom_function_map         BYTEA
 ) RETURNS BYTEA AS
 $$
-DECLARE
-    i INTEGER := 0;
-BEGIN
-    i := i + 1;
-    RAISE NOTICE 'fit transition called % time',i;
-    RETURN state; -- Just return whatever was passed in
-END
-$$ LANGUAGE plpgSQL;
+    param_keys = [ 'compile_params', 'accessible_gpus_for_seg', 'dependent_var_shape', 'dist_key_mapping',
+                   'current_seg_id', 'segments_per_host', 'custom_function_map', 'is_final_training_call',
+                   'dist_key', 'serialized_weights', 'images_per_seg', 'model_architecture', 'fit_params',
+                   'independent_var_shape', 'use_caching' ]
+
+    num_calls = 1
+    if 'transition_function_params' in GD:
+        if dist_key in GD['transition_function_params']:
+            if not 'reset' in GD['transition_function_params'][dist_key]:
+                num_calls = GD['transition_function_params'][dist_key]['num_calls']
+                num_calls += 1
+
+    plpy.info("num_calls={} for dist_key={} seg_id={}".format(num_calls, dist_key, current_seg_id))
+    plpy.info("images_per_seg={}, independent_var_shape for dist_key={} seg_id={}".format(images_per_seg, independent_var_shape, dist_key, current_seg_id))
+
+    g = globals()
+    params = dict()
+
+    for k in param_keys:
+        params[k] = g[k]
+
+    if dependent_var:
+        params['len_dependent_var'] = len(dependent_var)
+    else:
+        params['len_dependent_var'] = 0
+    if independent_var:
+        params['len_independent_var'] = len(independent_var)
+    else:
+        params['len_dependent_var'] = 0
+
+    params['num_calls'] = num_calls
+
+    if not 'transition_function_params' in GD:
+        GD['transition_function_params'] = dict()
+    GD['transition_function_params'][dist_key] = params
+
+    # compute "logical" seg_id, skipping segments with no data
+    #   ( current_seg_id is the "physical" seg_id )
+    seg_id = dist_key_mapping.index( dist_key )
+
+    if dependent_var_shape[0] * num_calls < images_per_seg [ seg_id ]:
+        return None
+    else:
+        GD['transition_function_params'][dist_key]['reset'] = True
+        return serialized_weights
+$$ LANGUAGE plpythonu VOLATILE;
+
+CREATE OR REPLACE FUNCTION validate_transition_function_params(
+    current_seg_id                       INTEGER,
+    images_per_seg                       INTEGER[],
+    expected_num_calls                   INTEGER,
+    expected_dist_key                    INTEGER,
+    expected_is_final_training_call      BOOLEAN,
+    expected_dist_key_mapping            INTEGER[]
+) RETURNS TEXT AS
+$$
+    err_msg = "transition function was not called on segment {}"
+
+    if 'transition_function_params' not in GD:
+        return err_msg.format(current_seg_id)
+    elif expected_dist_key not in GD['transition_function_params']:
+        return err_msg + " for __dist_key__ = {}".format(expected_dist_key)
+    actual = GD['transition_function_params'][expected_dist_key]
+
+    err_msg = """Incorrect value for {} param passed to fit_transition_multiple_model:
+       Actual={}, Expected={}"""
+
+    plpy.info("tfp[{}].keys() = {}".format(expected_dist_key, GD['transition_function_params'][expected_dist_key]))
+
+    if actual['current_seg_id'] != current_seg_id:
+        return err_msg.format(
+            actual['current_seg_id'],
+            current_seg_id,
+            'current_seg_id'
+        )
+    elif actual['num_calls'] != expected_num_calls:
+        return err_msg.format(
+            actual['num_calls'],
+            expected_num_calls,
+            'num_calls'
+        )
+    elif actual['is_final_training_call'] != expected_is_final_training_call:
+        return err_msg.format(
+            actual['is_final_training_call'],
+            expected_is_final_training_call,
+            'is_final_training_call'
+        )
+    elif actual['dist_key'] != expected_dist_key:
+        return err_msg.format(
+            actual['dist_key'],
+            expected_dist_key,
+            'dist_key'
+        )
+
+    return 'PASS'  # actual params match expected params
+$$ LANGUAGE plpythonu VOLATILE;
+
+-- Helper to rotate an array of int's
+CREATE OR REPLACE FUNCTION rotate_keys(
+    keys    INTEGER[]
+) RETURNS INTEGER[]
+AS $$
+   return keys[-1:] + keys[:-1]
+$$ LANGUAGE plpythonu IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION reverse_rotate_keys(
+    keys    INTEGER[]
+) RETURNS INTEGER[]
+AS $$
+   return keys[1:] + keys[:1]
+$$ LANGUAGE plpythonu IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION setup_model_tables(
+    input_table TEXT,
+    output_table TEXT
+) RETURNS TEXT AS
+$$ 
+    fit_mult = GD['fit_mult']
+
+    fit_mult.model_input_tbl = input_table
+    fit_mult.model_output_tbl = output_table
+    fit_mult.init_model_output_tbl()
+$$ LANGUAGE plpythonu VOLATILE;
 
 CREATE OR REPLACE FUNCTION test_run_training(
     source_table TEXT,
-    iteration INTEGER,
-    first_hop BOOLEAN,
+    hop INTEGER,
+    is_very_first_hop BOOLEAN,
     is_final_training_call BOOLEAN
-) RETURNS TEXT AS
+) RETURNS VOID AS
 $$
     fit_mult = GD['fit_mult']
 
     fit_mult.source_tbl = source_table
-    fit_mult.init_model_output_tbl()
+    fit_mult.is_very_first_hop = is_very_first_hop
     fit_mult.is_final_training_call = is_final_training_call
 
-    if fit_mult.run_training(iteration, first_hop):
-        err_msg = None
-    else:
-        err_msg = 'FitMultiple.run_training(0) returned False'
+    fit_mult.run_training(hop=hop, is_very_first_hop=is_very_first_hop)
+    plpy.info('FitMultiple.run_training(hop={}, is_very_first_hop={}) returned successfully' \
+            .format(hop, is_very_first_hop))
 
-    return err_msg
 $$ LANGUAGE plpythonu VOLATILE
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__',MODIFIES SQL DATA);
 
--- Create mst table (maybe this should be moved to common setup file?
+CREATE OR REPLACE FUNCTION validate_mst_key_order(output_tbl TEXT, expected_tbl TEXT)
+RETURNS VOID AS
+$$
+DECLARE
+    actual INTEGER[];
+    expected INTEGER[];
+BEGIN
+    EXECUTE format(
+        'SELECT ARRAY('
+            'SELECT mst_key FROM %I '
+                'ORDER BY __dist_key__)',
+        output_tbl
+    ) INTO actual;
+
+    EXECUTE format(
+        'SELECT mst_keys FROM %I', expected_tbl
+    ) INTO expected;
+
+    EXECUTE format(
+        'SELECT ASSERT('
+            '$1 = $2,'
+            '%L || '
+            '%L || $1::TEXT || '
+            '%L || $2::TEXT'
+        ')',
+        'mst keys found in wrong order / wrong segments!',
+        E'\nActual: ',
+        E'\nExpected: '
+    ) USING actual, expected;
+    
+END
+$$ LANGUAGE PLpgSQL VOLATILE;
+
+-- Create mst table
 DROP TABLE IF EXISTS iris_mst_table, iris_mst_table_summary;
 SELECT load_model_selection_table(
     'iris_model_arch',
@@ -185,54 +303,107 @@ SELECT load_model_selection_table(
 );
 
 -- Create FitMultiple object for running test functions
-SELECT init_fit_mult('iris_mst_table');
+SELECT init_fit_mult('iris_data_15buf_packed', 'iris_mst_table');
+DROP TABLE IF EXISTS model_input, model_output;
 
 -- ====================================================================
 -- ===========  Enough setup, now for the actual tests! ===============
 -- ====================================================================
 
--- Test init_schedule_tbl()
+--=== Test init_schedule_tbl() ===--
 DROP TABLE IF EXISTS current_schedule;
 SELECT test_init_schedule('current_schedule');
-SELECT * FROM current_schedule ORDER BY __dist_key__;
+SELECT assert(
+    mst_key IS NOT NULL,
+    'mst_keys in schedule table created by test_init_schedule() does not match keys in mst_table'
+) FROM current_schedule FULL JOIN iris_mst_table USING (mst_key);
 
-SELECT * FROM iris_mst_table;
+-- Save order of mst keys in schedule for tracking 
+DROP TABLE IF EXISTS expected_order;
+CREATE TABLE expected_order AS SELECT ARRAY(SELECT mst_key FROM current_schedule ORDER BY __dist_key__) mst_keys;
 
--- Add some assert's here
-SELECT ARRAY(SELECT mst_key FROM iris_mst_table ORDER BY mst_key) s \gset mst
-SELECT ASSERT(COUNT(*) = ARRAY_UPPER(:'msts'::INTEGER[], 1),
-    'test_init_schedule returned ' || count(*) || ' rows. ' ||
-    'Expected ' || ARRAY_UPPER(:'msts'::INTEGER[], 1) || ' rows.') FROM current_schedule;
-SELECT ASSERT(ARRAY(SELECT mst_key AS mst_keys FROM current_schedule ORDER BY mst_keys) = :'msts',
-    'mst keys returned from test_init_schedule() do not match iris_mst_table');
+SELECT mst_keys FROM expected_order;
 
--- Test rotate_schedule()
+--==== Test rotate_schedule() ====--
 SELECT test_rotate_schedule('current_schedule');
-SELECT * FROM current_schedule ORDER BY __dist_key__;
+UPDATE expected_order SET mst_keys=rotate_keys(mst_keys);
+SELECT mst_keys FROM expected_order;
+SELECT validate_mst_key_order('current_schedule', 'expected_order');
+UPDATE expected_order SET mst_keys=reverse_rotate_keys(mst_keys);  -- Undo for later
 
---SELECT check_full_rotation()
+m4_ifelse(m4_eval(__DBMS_VERSION_MAJOR__ >= 6),1,
+<!  -- Rest of tests for gpdb 6+ only
 
--- Add some assert's here
+SELECT setup_model_tables('model_input', 'model_output');
+    UPDATE model_output -- Reduce size of model for faster tests
+        SET ( model_weights, model_arch, compile_params, fit_params ) =
+            ( mst_key::TEXT::BYTEA,
+              ('{ "a" : ' || mst_key::TEXT || ' }' )::JSON,
+              'c' || mst_key::TEXT,
+              'f' || mst_key::TEXT );
+  SELECT * FROM current_schedule; -- DEBUG
+  SELECT * FROM model_output;  -- DEBUG
+SELECT validate_mst_key_order('model_output', 'expected_order');
 
--- Test very first hop of first iteration
-SELECT test_run_training('iris_data_packed', 0, True, False);
+--=== Test very first hop of first iteration ===--
+SELECT test_run_training('iris_data_15buf_packed', 0, True, False);
 
--- Should just be a table rename
-   -- SELECT assert(model_input_tbl == model_output_tbl)
+    -- mst_keys should not have moved
+    SELECT validate_mst_key_order('model_output', 'expected_order');
 
--- Session should get initialized for ALL segments, even ones with NULL model weights
-   -- [ Assert 'session' and 'model' have been saved in SD, for all  ]
+--=== Test an ordinary hop (should re-create a new model_output table with rotated mst_keys) ===--
+SELECT test_run_training('iris_data_15buf_packed', 1, False, False);
 
--- Test an ordinary hop (should clear session on segments with models, and rotate mst's)
-SELECT test_run_training('iris_data_packed', 0, False, False);
+    -- check that mst keys rotated onto correct segments
+    UPDATE expected_order SET mst_keys=rotate_keys(mst_keys);
+    SELECT validate_mst_key_order('model_output', 'expected_order');
 
--- Assert 
+--===  Test first hop of another iteration ===--
+SELECT test_run_training('iris_data_15buf_packed', 0, False, False);
 
--- Test first hop of another iteration (should be a table rename, but re-use same session):
-SELECT test_run_training('iris_data_packed', 5, True, False);
--- Assert model_input = model_output
+    -- mst keys should not have not moved this time
+    SELECT validate_mst_key_order('model_output', 'expected_order');
 
--- Test a final training hop (should clear session on ALL segments, even those with NULL model_weights this round)
-SELECT test_run_training('iris_data_packed', 2, False, True);
+--=== Test final training hop ===--
+SELECT test_run_training('iris_data_15buf_packed', 8, False, True);
 
--- Assert 
+    -- check that mst keys rotated onto correct segments
+    UPDATE expected_order SET mst_keys=rotate_keys(mst_keys);
+    SELECT validate_mst_key_order('model_output', 'expected_order');
+
+--=== TODO:  Test same 6 msts, fake # segs changed from 3 to 6 (= # msts) and 7 (> # msts) ===-
+
+-- Test a final training hop
+UPDATE model_output SET (mst_key, model_weights)=(NULL, NULL) WHERE mst_key=3;
+SELECT test_run_training('iris_data_15buf_packed', 2, False, True);
+
+DROP TABLE IF EXISTS validate_params_results;
+CREATE TABLE validate_params_results AS
+    SELECT validate_transition_function_params(
+        gp_segment_id,
+        ARRAY[10, 10, 10],  -- expected images_per_seg
+        5,              -- expected num_calls (per dist_key)
+        __dist_key__,   -- expected dist_key
+        True,           -- expected is_final_training_call
+        ARRAY(          -- expected dist_key_mapping
+            SELECT __dist_key__
+            FROM iris_data_15buf_packed
+            GROUP BY __dist_key__, gp_segment_id
+            ORDER BY gp_segment_id
+        )
+    ) AS res
+FROM iris_data_15buf_packed;
+
+-- Test a final training hop for # msts < # segs with caching disabled
+--        - check that fit_transition called only on segments with
+--        - non-NULL weights
+-- Test a final training hop for # msts < # segs with caching enabled
+-- TODO:  - set use_caching=True
+--        - check that fit_transition is called on ALL segments, even
+--          if they have NULL weights.
+
+SELECT assert(res = 'PASS', res) FROM validate_params_results;
+
+     !> )  -- m4_endif DBMS_VERSION_MAJOR >= 6
+>>> )  -- m4_endif postgres
+
