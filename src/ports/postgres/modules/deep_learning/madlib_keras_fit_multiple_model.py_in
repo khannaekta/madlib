@@ -48,6 +48,8 @@ from utilities.utilities import get_seg_number
 from utilities.utilities import get_segments_per_host
 from utilities.utilities import rename_table
 import utilities.debug as DEBUG
+from utilities.debug import plpy_prepare
+from utilities.debug import plpy_execute
 
 DEBUG.timings_enabled = False
 DEBUG.mst_keys_enabled = False
@@ -202,9 +204,7 @@ class FitMultipleModel(object):
                     self.validation_table)
 
         self.dist_keys = query_dist_keys(self.source_table, self.dist_key_col)
-        DEBUG.plpy.info("init_dist_keys = {0}".format(self.dist_keys))
         self.max_dist_key = sorted(self.dist_keys)[-1]
-        DEBUG.plpy.info("max_dist_key = {0}".format(self.max_dist_key))
         self.extra_dist_keys = []
 
         num_msts = len(self.msts)
@@ -327,13 +327,9 @@ class FitMultipleModel(object):
             images_per_seg = self.images_per_seg_valid
             self.info_str += "\n\tValidation set after iteration {0}:".format(epoch)
         for mst in self.msts:
-            DEBUG.start_timing('eval_query_weights')
             weights = query_weights(self.model_output_tbl, self.model_weights_col,
                                     self.mst_key_col, mst[self.mst_key_col])
-            DEBUG.print_timing('eval_query_weights')
-            DEBUG.start_timing('eval_get_model_arch_weights')
             model_arch = get_model_arch(self.model_arch_table, mst[self.model_id_col])
-            DEBUG.print_timing('eval_get_model_arch_weights')
             DEBUG.start_timing('eval_compute_loss_and_metrics')
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
@@ -354,7 +350,7 @@ class FitMultipleModel(object):
             mst_loss[mst[self.mst_key_col]].append(loss)
             mst_metric[mst[self.mst_key_col]].append(metric)
             self.info_str += "\n\tmst_key={0}: metric={1}, loss={2}".format(mst[self.mst_key_col], metric, loss)
-        DEBUG.start_timing('eval_model_total')
+        DEBUG.print_timing('eval_model_total')
 
     def populate_object_map(self):
         builtin_losses = dir(losses)
@@ -410,7 +406,7 @@ class FitMultipleModel(object):
                     USING ({self.mst_key_col})
             DISTRIBUTED BY ({self.dist_key_col})
         """.format(self=self, mst_key_list=mst_key_list)
-        DEBUG.plpy.execute(create_sched_query)
+        plpy_execute(create_sched_query)
 
     def rotate_schedule_tbl(self):
         if self.rotate_schedule_tbl_plan is None:
@@ -462,7 +458,7 @@ class FitMultipleModel(object):
                     JOIN {self.original_model_output_tbl} o
                         USING ({self.mst_key_col})
         """.format(self=self)
-        DEBUG.plpy.execute(load_warm_start_weights_query)
+        plpy_execute(load_warm_start_weights_query)
 
         plpy.execute("DROP TABLE IF EXISTS {0}".format(self.model_info_tbl))
 
@@ -490,7 +486,7 @@ class FitMultipleModel(object):
                         ON m.{self.model_id_col} = a.{self.model_id_col}
                 WHERE a.{self.model_weights_col} IS NOT NULL;
         """.format(self=self)
-        DEBUG.plpy.execute(load_xfer_learning_weights_query)
+        plpy_execute(load_xfer_learning_weights_query)
 
     def init_model_output_tbl(self):
         DEBUG.start_timing('init_model_output_and_info')
@@ -553,7 +549,6 @@ class FitMultipleModel(object):
 
             num_dist_keys = len(self.dist_keys)
 
-            DEBUG.plpy.info("Initializing index {} mst {}".format(index, mst['mst_key']))
             if index < num_dist_keys:
                 dist_key = self.dist_keys[index]
             else:  # For models that won't be trained on first hop
@@ -837,7 +832,7 @@ class FitMultipleModel(object):
             DEBUG.start_timing("hop")
 
             if self.hop_plan is None:
-                self.hop_plan = plpy.prepare("""
+                self.hop_plan = plpy_prepare("""
                     CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
                         SELECT o.{self.mst_key_col},
                                o.{self.model_weights_col},
@@ -852,7 +847,7 @@ class FitMultipleModel(object):
                     """.format(self=self)
                 )
 
-            plpy.execute(self.hop_plan)
+            plpy_execute(self.hop_plan)
 
             DEBUG.print_timing("hop")
 
@@ -892,7 +887,7 @@ class FitMultipleModel(object):
 
         DEBUG.start_timing("udf")
         if self.udf_plan is None:
-            self.udf_plan = plpy.prepare("""
+            self.udf_plan = plpy_prepare("""
                 CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
                 SELECT
                     model_in.{self.mst_key_col},
@@ -940,7 +935,7 @@ class FitMultipleModel(object):
             )
 
         try:
-            plpy.execute(self.udf_plan, [ self.is_final_training_call ] )
+            plpy_execute(self.udf_plan, [ self.is_final_training_call ] )
         except plpy.SPIError as e:
             msg = e.message
             if not 'UDF_Detail' in msg:
