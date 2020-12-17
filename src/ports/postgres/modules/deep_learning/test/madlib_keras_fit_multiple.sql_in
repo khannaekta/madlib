@@ -252,6 +252,9 @@ $$
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__',MODIFIES SQL DATA);
 
+m4_ifelse(m4_eval(__DBMS_VERSION_MAJOR__ >= 6),1,
+<!  -- uses some gpdb 6+ features
+
 CREATE OR REPLACE FUNCTION validate_mst_key_order(output_tbl TEXT, expected_tbl TEXT)
 RETURNS VOID AS
 $$
@@ -284,6 +287,8 @@ BEGIN
     
 END
 $$ LANGUAGE PLpgSQL VOLATILE;
+
+!> )  -- m4_endif DBMS_VERSION_MAJOR >= 6
 
 -- Create mst table
 DROP TABLE IF EXISTS iris_mst_table, iris_mst_table_summary;
