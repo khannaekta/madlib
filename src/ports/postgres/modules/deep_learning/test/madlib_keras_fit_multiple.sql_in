@@ -121,7 +121,7 @@ $$
                 num_calls += 1
 
     plpy.info("num_calls={} for dist_key={} seg_id={}".format(num_calls, dist_key, current_seg_id))
-    plpy.info("images_per_seg={}, independent_var_shape for dist_key={} seg_id={}".format(images_per_seg, independent_var_shape, dist_key, current_seg_id))
+    plpy.info("images_per_seg={}, independent_var_shape={} for dist_key={} seg_id={}".format(images_per_seg, independent_var_shape, dist_key, current_seg_id))
 
     g = globals()
     params = dict()
@@ -273,14 +273,18 @@ BEGIN
 
     EXECUTE format(
         'SELECT ASSERT(' ||
-            quote_literal(actual) || ' = ' || quote_literal(expected) || ','
+            '%L = %L, ' ||
             '%L || ' ||
-            '%L || ' || actual || '::TEXT || ' ||
-            '%L || ' || expected || '::TEXT' ||
+            '%L || %L::TEXT || ' ||
+            '%L || %L::TEXT' ||
         ')',
+        actual,
+        expected,
         'mst keys found in wrong order / wrong segments!',
         E'\nActual: ',
-        E'\nExpected: '
+        actual,
+        E'\nExpected: ',
+        expected
     ) INTO res;
 END
 $$ LANGUAGE PLpgSQL VOLATILE;
@@ -301,6 +305,20 @@ SELECT load_model_selection_table(
         $$batch_size=10,epochs=1$$
     ]
 );
+
+DROP TABLE IF EXISTS src_dist_keys;
+CREATE TABLE src_dist_keys AS
+SELECT
+    ARRAY(  -- map of dist_keys to seg_ids from source table
+        SELECT __dist_key__
+        FROM iris_data_15buf_packed
+        GROUP BY __dist_key__, gp_segment_id
+        ORDER BY gp_segment_id
+    ) AS expected_dist_key_mapping,
+    __dist_key__
+FROM iris_data_15buf_packed
+GROUP BY __dist_key__
+DISTRIBUTED BY (__dist_key__);
 
 -- Create FitMultiple object for running test functions
 SELECT init_fit_mult('iris_data_15buf_packed', 'iris_mst_table');
@@ -377,22 +395,18 @@ SELECT test_run_training('iris_data_15buf_packed', 8, False, True);
 UPDATE model_output SET (mst_key, model_weights)=(NULL, NULL) WHERE mst_key=3;
 SELECT test_run_training('iris_data_15buf_packed', 2, False, True);
 
-DROP TABLE IF EXISTS validate_params_results;
 CREATE TABLE validate_params_results AS
     SELECT validate_transition_function_params(
-        gp_segment_id,
+        s.gp_segment_id,
         ARRAY[10, 10, 10],  -- expected images_per_seg
         5,              -- expected num_calls (per dist_key)
-        __dist_key__,   -- expected dist_key
+        s.__dist_key__,   -- expected dist_key
         True,           -- expected is_final_training_call
-        ARRAY(          -- expected dist_key_mapping
-            SELECT __dist_key__
-            FROM iris_data_15buf_packed
-            GROUP BY __dist_key__, gp_segment_id
-            ORDER BY gp_segment_id
-        )
-    ) AS res
-FROM iris_data_15buf_packed;
+        s.expected_dist_key_mapping
+    ) AS res,
+    s.__dist_key__
+FROM src_dist_keys s
+DISTRIBUTED BY (__dist_key__);
 
 -- Test a final training hop for # msts < # segs with caching disabled
 --        - check that fit_transition called only on segments with
