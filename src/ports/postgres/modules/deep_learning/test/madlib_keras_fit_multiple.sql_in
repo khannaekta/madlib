@@ -248,9 +248,78 @@ $$
     fit_mult.run_training(hop=hop, is_very_first_hop=is_very_first_hop)
     plpy.info('FitMultiple.run_training(hop={}, is_very_first_hop={}) returned successfully' \
             .format(hop, is_very_first_hop))
-
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__',MODIFIES SQL DATA);
+
+m4_ifelse(m4_eval(__DBMS_VERSION_MAJOR__ < 6),1,<!
+
+-- format() function for dynamic SQL was introduced in gpdb6,
+--   so for gpdb5 we need to define a simple version of it
+CREATE OR REPLACE FUNCTION format(s TEXT, v1 TEXT, v2 TEXT, v3 TEXT,
+                                  v4 TEXT, v5 TEXT, v6 TEXT, v7 TEXT)
+RETURNS TEXT AS
+$$
+    import re
+    from internal.db_utils import quote_nullable
+    from utilities.utilities import quote_ident
+
+    seps = re.findall(r'%.', s)
+    pieces = re.split(r'%.', s)
+
+    vars = [ v1, v2, v3, v4, v5, v6, v7 ]
+
+    res = pieces[0]
+    for i in range(len(seps)):
+        if vars[i] is None:
+            raise ValueError('Not enough params passed to format({})'.format(s))
+        else:
+            c = seps[i][1]
+            if c == '%':
+                quoted = '%'
+            elif c == 's':
+                quoted = vars[i]
+            elif c == 'L':
+                quoted = quote_nullable(vars[i])
+            elif c == 'I':
+                quoted = quote_ident(vars[i])
+            else:
+                raise ValueError('{} in format({}) not recognized'.format(seps[i],s))
+            res += quoted
+        res += pieces[i+1]
+    return res
+$$ LANGUAGE plpythonu IMMUTABLE;
+
+-- plpythonu functions can't accept ANYELEMENT params, so we need this
+--   wrapper function to cast them to TEXT
+CREATE OR REPLACE FUNCTION format( s TEXT,
+                                  v1 ANYELEMENT,
+                                  v2 ANYELEMENT,
+                                  v3 ANYELEMENT,
+                                  v4 ANYELEMENT,
+                                  v5 ANYELEMENT,
+                                  v6 ANYELEMENT,
+                                  v7 ANYELEMENT,
+                                  v8 ANYELEMENT
+                            ) RETURNS TEXT AS
+$$
+    SELECT format($1,
+                  $2::TEXT,
+                  $3::TEXT,
+                  $4::TEXT,
+                  $5::TEXT,
+                  $6::TEXT,
+                  $7::TEXT,
+                  $8::TEXT
+    )
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION format(s TEXT, v1 ANYELEMENT)
+RETURNS TEXT AS
+$$
+    SELECT format($1, $2::TEXT, NULL, NULL, NULL, NULL, NULL, NULL)
+$$ LANGUAGE sql IMMUTABLE;
+
+!>) -- m4_endif DBMS_VERSION_MAJOR <= 5
 
 CREATE OR REPLACE FUNCTION validate_mst_key_order(output_tbl TEXT, expected_tbl TEXT)
 RETURNS VOID AS
@@ -268,7 +337,8 @@ BEGIN
     ) INTO actual;
 
     EXECUTE format(
-        'SELECT mst_keys FROM %I', expected_tbl
+        'SELECT mst_keys FROM %I',
+        expected_tbl
     ) INTO expected;
 
     EXECUTE format(
