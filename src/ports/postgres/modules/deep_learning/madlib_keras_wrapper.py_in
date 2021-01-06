@@ -40,6 +40,15 @@ from tensorflow.keras.optimizers import *
 import tensorflow.keras.optimizers as opt
 import tensorflow.keras.losses as losses
 import tensorflow.keras.metrics as metrics
+# import tensorflow.compat.v1 as tf
+# tf.disable_v2_behavior()
+# from tensorflow.compat.v1.keras import backend as K
+# from tensorflow.compat.v1.keras import utils as keras_utils
+# from tensorflow.compat.v1.keras.optimizers import *
+#
+# import tensorflow.compat.v1.keras.optimizers as opt
+# import tensorflow.compat.v1.keras.losses as losses
+# import tensorflow.compat.v1.keras.metrics as metrics
 
 CUDA_VISIBLE_DEVICES_KEY = 'CUDA_VISIBLE_DEVICES'
 #######################################################################
@@ -91,19 +100,19 @@ def set_keras_session(device_name, gpu_count, segments_per_host):
         K.set_session(session)
 
 def get_keras_session(device_name, gpu_count, segments_per_host):
-    config = tf.ConfigProto()
+    # config = tf.ConfigProto()
     if gpu_count > 0:
         memory_fraction = get_gpu_memory_fraction(gpu_count, segments_per_host)
-        config.gpu_options.allow_growth = False
-        config.gpu_options.per_process_gpu_memory_fraction = memory_fraction
-    session = tf.Session(config=config)
+        # config.gpu_options.allow_growth = False
+        # config.gpu_options.per_process_gpu_memory_fraction = memory_fraction
+    session = tf.Session()#config=config)
     enable_xla()
     return session
 
 def clear_keras_session(sess = None):
     if sess is None:
         sess = K.get_session()
-    K.clear_session()
+    tf.compat.v1.keras.backend.clear_session()
     sess.close()
 
 

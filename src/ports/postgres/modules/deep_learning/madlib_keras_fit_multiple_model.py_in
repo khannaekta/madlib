@@ -51,7 +51,7 @@ import utilities.debug as DEBUG
 from utilities.debug import plpy_prepare
 from utilities.debug import plpy_execute
 
-DEBUG.timings_enabled = True
+DEBUG.timings_enabled = False
 DEBUG.mst_keys_enabled = False
 DEBUG.plpy_execute_enabled = False
 DEBUG.plpy_info_enabled = False

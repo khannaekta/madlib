@@ -27,7 +27,9 @@ from madlib_keras_helper import *
 from madlib_keras_validator import *
 from madlib_keras_wrapper import *
 from model_arch_info import *
-import tensorflow as tf
+# import tensorflow as tf
+# import tensorflow.compat.v1 as tf
+# tf.disable_v2_behavior()
 
 from madlib_keras_model_selection import ModelSelectionSchema
 
@@ -45,7 +47,7 @@ from utilities.control import MinWarning
 import tensorflow as tf
 import utilities.debug as DEBUG
 
-DEBUG.timings_enabled = False
+DEBUG.timings_enabled = True
 DEBUG.plpy_info_enabled = False
 
 from tensorflow.keras import backend as K
@@ -53,6 +55,11 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 from tensorflow.keras.optimizers import *
 from tensorflow.keras.regularizers import *
+# from tensorflow.compat.v1.keras import backend as K
+# from tensorflow.compat.v1.keras.layers import *
+# from tensorflow.compat.v1.keras.models import *
+# from tensorflow.compat.v1.keras.optimizers import *
+# from tensorflow.compat.v1.keras.regularizers import *
 
 class GD_STORE:
     SESS = 'sess'
@@ -84,13 +91,14 @@ def get_init_model_and_sess(GD, device_name, gpu_count, segments_per_host,
         with tf.device(device_name):
             sess = GD[GD_STORE.SESS]
             segment_model = GD[GD_STORE.SEGMENT_MODEL]
-            K.set_session(sess)
+            tf.compat.v1.keras.backend.set_session(sess)
     else:
         with tf.device(device_name):
-            sess = get_keras_session(device_name, gpu_count, segments_per_host)
-            K.set_session(sess)
+            # sess = get_keras_session(device_name, gpu_count, segments_per_host)
+            sess = tf.compat.v1.Session()
+            tf.compat.v1.keras.backend.set_session(sess)
             segment_model = init_model(model_architecture, compile_params, custom_function_map)
-        GD_STORE.init(GD, sess, segment_model)
+            GD_STORE.init(GD, sess, segment_model)
     return segment_model, sess
 
 @MinWarning("warning")
@@ -554,13 +562,16 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
 
     trans_enter_time = time.time()
 
+    # tf.compat.v1.enable_eager_execution()
     device_name = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[current_seg_id], current_seg_id)
 
+    DEBUG.start_timing("INIT_MODEL")
     segment_model, sess = get_init_model_and_sess(GD, device_name,
         accessible_gpus_for_seg[current_seg_id],
         segments_per_host,
         model_architecture, compile_params,
         custom_function_map)
+    DEBUG.print_timing("INIT_MODEL")
 
     if GD_STORE.AGG_IMAGE_COUNT in GD:
         agg_image_count = GD[GD_STORE.AGG_IMAGE_COUNT]
@@ -571,8 +582,10 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     DEBUG.plpy_info("agg_image_count={}".format(agg_image_count))
 
     if agg_image_count == 0:
+        DEBUG.start_timing('SET_WEIGHTS')
         with tf.device(device_name):
             set_model_weights(segment_model, prev_serialized_weights)
+        DEBUG.print_timing('SET_WEIGHTS')
 
     # Prepare the data
     x_train = np_array_float32(independent_var, independent_var_shape)
@@ -599,6 +612,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
             GD_STORE.clear(GD)
             clear_keras_session(sess)
 
+    # K.clear_session()
     trans_exit_time = time.time()
     DEBUG.plpy.info("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
 
