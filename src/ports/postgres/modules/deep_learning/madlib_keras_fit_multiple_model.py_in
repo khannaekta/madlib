@@ -53,7 +53,7 @@ from utilities.debug import plpy_execute
 
 DEBUG.timings_enabled = True
 DEBUG.mst_keys_enabled = False
-DEBUG.plpy_execute_enabled = False
+DEBUG.plpy_execute_enabled = True
 DEBUG.plpy_info_enabled = False
 
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
@@ -297,8 +297,8 @@ class FitMultipleModel(object):
                                     "{0}: {1} sec\n".format(iter,
                                                             end_iteration -
                                                             start_iteration)
-                else:
-                    self.rotate_schedule_tbl()
+                # else:
+                #     self.rotate_schedule_tbl()
 
             if should_compute_metrics_this_iter(iter,
                                                 self.metrics_compute_frequency,
@@ -825,37 +825,38 @@ class FitMultipleModel(object):
         # that was used for initializing GPU memory.
 
         DEBUG.start_timing("run_training")
-        if hop > 0:
-            DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
-            DEBUG.start_timing("hop")
-
-            if self.hop_plan is None:
-                self.hop_plan = plpy_prepare("""
-                    CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
-                        SELECT o.{self.mst_key_col},
-                               o.{self.model_weights_col},
-                               o.{self.model_arch_col},
-                               o.{self.compile_params_col},
-                               o.{self.fit_params_col},
-                               o.{self.object_map_col},
-                               s.{self.dist_key_col}
-                        FROM {self.model_output_tbl} o JOIN {self.schedule_tbl} s
-                            ON o.{self.dist_key_col} = s.{self.prev_dist_key_col}
-                        DISTRIBUTED BY ({self.dist_key_col})
-                    """.format(self=self)
-                )
-
-            plpy_execute(self.hop_plan)
-
-            DEBUG.print_timing("hop")
-
-            self.truncate_and_drop(self.model_output_tbl)
-        else:
+        # if hop > 0:
+        #     DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
+        #     DEBUG.start_timing("hop")
+        #
+        #     if self.hop_plan is None:
+        #         self.hop_plan = plpy_prepare("""
+        #             CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
+        #                 SELECT o.{self.mst_key_col},
+        #                        o.{self.model_weights_col},
+        #                        o.{self.model_arch_col},
+        #                        o.{self.compile_params_col},
+        #                        o.{self.fit_params_col},
+        #                        o.{self.object_map_col},
+        #                        s.{self.dist_key_col}
+        #                 FROM {self.model_output_tbl} o JOIN {self.schedule_tbl} s
+        #                     ON o.{self.dist_key_col} = s.{self.prev_dist_key_col}
+        #                 DISTRIBUTED BY ({self.dist_key_col})
+        #             """.format(self=self)
+        #         )
+        #
+        #     plpy_execute(self.hop_plan)
+        #
+        #     DEBUG.print_timing("hop")
+        #
+        #     self.truncate_and_drop(self.model_output_tbl)
+        # else:
             # Skip hop if it's the first in an iteration, just rename
-            plpy.execute("""
-                ALTER TABLE {self.model_output_tbl}
-                    RENAME TO {self.model_input_tbl}
-            """.format(self=self))
+        # if is_very_first_hop:
+        #     plpy.execute("""
+        #     ALTER TABLE {self.model_output_tbl}
+        #         RENAME TO {self.model_input_tbl}
+        # """.format(self=self))
  
         ind_shape_col = self.ind_shape_col
         dep_shape_col = self.dep_shape_col
@@ -899,55 +900,73 @@ class FitMultipleModel(object):
 
         DEBUG.start_timing("udf")
         if self.udf_plan is None:
-            self.udf_plan = plpy_prepare("""
+            # self.udf_plan = plpy_prepare("""
+            #     CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
+            #     SELECT
+            #         model_in.{self.mst_key_col},
+            #         CASE WHEN model_in.{self.dist_key_col} > {self.max_dist_key}
+            #         THEN
+            #             model_in.{self.model_weights_col}
+            #         ELSE
+            #             {self.schema_madlib}.fit_transition_multiple_model(
+            #                 {dep_var_col},
+            #                 {indep_var_col},
+            #                 {dep_shape_col},
+            #                 {ind_shape_col},
+            #                 model_in.{self.model_arch_col}::TEXT,
+            #                 model_in.{self.compile_params_col}::TEXT,
+            #                 model_in.{self.fit_params_col}::TEXT,
+            #                 src.{self.dist_key_col},
+            #                 ARRAY{self.dist_key_mapping},
+            #                 src.{self.gp_segment_id_col},
+            #                 {self.segments_per_host},
+            #                 ARRAY{self.images_per_seg_train},
+            #                 ARRAY{self.accessible_gpus_for_seg},
+            #                 model_in.{self.model_weights_col}::BYTEA,
+            #                 $1::BOOLEAN, -- is_final_training_call
+            #                 {self.use_caching}::BOOLEAN,
+            #                 model_in.{self.object_map_col}::BYTEA
+            #             )
+            #         END::BYTEA AS {self.model_weights_col},
+            #         model_in.{self.model_arch_col},
+            #         model_in.{self.compile_params_col},
+            #         model_in.{self.fit_params_col},
+            #         model_in.{self.object_map_col},
+            #         model_in.{self.dist_key_col}
+            #     FROM {self.model_input_tbl} model_in
+            #         LEFT JOIN {source_table} src
+            #         USING ({self.dist_key_col})
+            #     DISTRIBUTED BY({self.dist_key_col})
+            #     """.format(dep_var_col=dep_var_col,
+            #                indep_var_col=indep_var_col,
+            #                dep_shape_col=dep_shape_col,
+            #                ind_shape_col=ind_shape_col,
+            #                source_table=source_table,
+            #                self=self
+            #                ),
+            #     [ 'BOOLEAN' ]
+            # )
+            # self.udf_plan = """
+            #     CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
+            #     SELECT
+            #             udf(model_in.{self.model_weights_col}::BYTEA,
+            #             model_in.{self.model_weights_col}::BYTEA)::BYTEA AS {self.model_weights_col}
+            #         FROM -- {self.model_input_tbl}
+            #         model_output_tbl model_in
+            #     """.format(self=self)
+            self.udf_plan = """
+                --DROP TABLE IF EXISTS {self.model_output_tbl};
                 CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
                 SELECT
-                    model_in.{self.mst_key_col},
-                    CASE WHEN model_in.{self.dist_key_col} > {self.max_dist_key}
-                    THEN
-                        model_in.{self.model_weights_col}
-                    ELSE
-                        {self.schema_madlib}.fit_transition_multiple_model(
-                            {dep_var_col},
-                            {indep_var_col},
-                            {dep_shape_col},
-                            {ind_shape_col},
-                            model_in.{self.model_arch_col}::TEXT,
-                            model_in.{self.compile_params_col}::TEXT,
-                            model_in.{self.fit_params_col}::TEXT,
-                            src.{self.dist_key_col},
-                            ARRAY{self.dist_key_mapping},
-                            src.{self.gp_segment_id_col},
-                            {self.segments_per_host},
-                            ARRAY{self.images_per_seg_train},
-                            ARRAY{self.accessible_gpus_for_seg},
-                            model_in.{self.model_weights_col}::BYTEA,
-                            $1::BOOLEAN, -- is_final_training_call
-                            {self.use_caching}::BOOLEAN,
-                            model_in.{self.object_map_col}::BYTEA
-                        )
-                    END::BYTEA AS {self.model_weights_col},
-                    model_in.{self.model_arch_col},
-                    model_in.{self.compile_params_col},
-                    model_in.{self.fit_params_col},
-                    model_in.{self.object_map_col},
-                    model_in.{self.dist_key_col}
-                FROM {self.model_input_tbl} model_in
-                    LEFT JOIN {source_table} src
-                    USING ({self.dist_key_col}) 
-                DISTRIBUTED BY({self.dist_key_col})
-                """.format(dep_var_col=dep_var_col,
-                           indep_var_col=indep_var_col,
-                           dep_shape_col=dep_shape_col,
-                           ind_shape_col=ind_shape_col,
-                           source_table=source_table,
-                           self=self
-                           ),
-                [ 'BOOLEAN' ]
-            )
+                        udf(model_in.{indep_var_col}::BYTEA,
+                        model_in.{indep_var_col}::BYTEA)::BYTEA AS {self.model_weights_col}
+                    FROM {self.source_table} model_in
+                """.format(indep_var_col=indep_var_col, self=self)
 
         try:
-            plpy_execute(self.udf_plan, [ self.is_final_training_call ] )
+            # plpy_execute(self.udf_plan, [ self.is_final_training_call ] )
+            plpy.execute("DROP TABLE IF EXISTS {self.model_output_tbl};".format(self=self))
+            plpy_execute(self.udf_plan)
         except plpy.SPIError as e:
             msg = e.message
             if not 'UDF_Detail' in msg:
@@ -963,9 +982,9 @@ class FitMultipleModel(object):
 
         DEBUG.print_timing("udf")
 
-        plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
+        # plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
 
-        self.truncate_and_drop(self.model_input_tbl)
+        # self.truncate_and_drop(self.model_input_tbl)
 
         if self.use_caching and is_very_first_hop:
             # Throw away plan for source_table, force generation of a new one
@@ -995,8 +1014,8 @@ class FitMultipleModel(object):
 
         """
 
-        with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
-            plpy.execute("""
-                TRUNCATE TABLE {table};
-                DROP TABLE {table}
-            """.format(table=table))
+        # with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
+        plpy.execute("""
+            --TRUNCATE TABLE {table};
+            DROP TABLE {table}
+        """.format(table=table))

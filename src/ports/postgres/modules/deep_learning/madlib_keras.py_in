@@ -602,6 +602,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     trans_exit_time = time.time()
     DEBUG.plpy.info("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
 
+    sess.graph.finalize()
     return return_state
 
 def fit_multiple_transition_caching(dependent_var, independent_var, dependent_var_shape,
