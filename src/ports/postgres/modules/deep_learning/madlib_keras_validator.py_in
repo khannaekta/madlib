@@ -438,27 +438,23 @@ class FitInputValidator(FitCommonValidator):
 
 class FitMultipleInputValidator(FitCommonValidator):
     def __init__(self, source_table, validation_table, output_model_table,
-                 model_selection_table, model_selection_summary_table, dependent_varname,
-                 independent_varname, dep_shape_cols, ind_shape_cols,
-                 num_iterations, model_info_table, mst_key_col,
+                 model_selection_table, dependent_varname, independent_varname,
+                 dep_shape_cols, ind_shape_cols, num_iterations, mst_key_col,
                  model_arch_table_col, metrics_compute_frequency, warm_start,
                  use_gpus, accessible_gpus_for_seg, val_dep_var, val_ind_var):
 
         self.module_name = 'madlib_keras_fit_multiple'
-
         input_tbl_valid(model_selection_table, self.module_name)
-        input_tbl_valid(model_selection_summary_table, self.module_name,
+        self.model_selection_summary_table = add_postfix(model_selection_table,
+                                                         '_summary')
+        input_tbl_valid(self.model_selection_summary_table, self.module_name,
                         error_suffix_str="Please ensure that the model selection table ({0}) "
                                          "has been created by "
                                          "load_model_selection_table().".format(
                                             model_selection_table))
         self.msts, self.model_arch_table, self.object_table = query_model_configs(
-            model_selection_table, model_selection_summary_table,
+            model_selection_table, self.model_selection_summary_table,
             mst_key_col, model_arch_table_col)
-        if warm_start:
-            input_tbl_valid(model_info_table, self.module_name)
-        else:
-            output_tbl_valid(model_info_table, self.module_name)
         super(FitMultipleInputValidator, self).__init__(source_table,
                                                         validation_table,
                                                         output_model_table,
@@ -477,6 +473,13 @@ class FitMultipleInputValidator(FitCommonValidator):
                                                         self.object_table,
                                                         val_dep_var,
                                                         val_ind_var)
+        self.output_model_info_table = add_postfix(output_model_table,
+                                                   '_info')
+
+        if warm_start:
+            input_tbl_valid(self.output_model_info_table, self.module_name)
+        else:
+            output_tbl_valid(self.output_model_info_table, self.module_name)
 
 class MstLoaderInputValidator():
     def __init__(self,
