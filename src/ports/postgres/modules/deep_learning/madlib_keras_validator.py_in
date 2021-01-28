@@ -459,11 +459,12 @@ class FitMultipleInputValidator(FitCommonValidator):
                                                         use_gpus,
                                                         accessible_gpus_for_seg,
                                                         self.module_name,
-                                                        self.object_table,
-                                                        val_dep_var,
-                                                        val_ind_var)
-        self.output_model_info_table = add_postfix(output_model_table,
-                                                   '_info')
+                                                        self.object_table)
+        _assert(len(self.dependent_varname) == 1
+                or len(self.independent_varname) == 1,
+                "Multiple dependent and independent variables not supported "
+                "for madlib_keras_fit_multiple_model!")
+        self.output_model_info_table = add_postfix(output_model_table, '_info')
 
         if warm_start:
             input_tbl_valid(self.output_model_info_table, self.module_name)
