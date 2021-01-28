@@ -1390,9 +1390,9 @@ class InputValidatorTestCase(unittest.TestCase):
 
     def test_validate_input_shape_shapes_match(self):
         # minibatched data
-        # self.plpy_mock_execute.return_value = [{'shape': [1,32,32,3]}]
-        # self.subject.validate_input_shape(
-        #     self.test_table, [self.ind_var], [[32,32,3]], 2, True)
+        self.plpy_mock_execute.return_value = [{'shape': [1,32,32,3]}]
+        self.subject.validate_input_shape(
+            self.test_table, [self.ind_var], [[32,32,3]], 2, True)
         # non-minibatched data
         self.plpy_mock_execute.return_value = [{'shape': [32,32,3]}]
         self.subject.validate_input_shape(
