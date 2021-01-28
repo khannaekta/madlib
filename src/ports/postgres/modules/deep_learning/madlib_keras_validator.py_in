@@ -406,7 +406,7 @@ class FitCommonValidator(object):
                                input_shape, 2, True)
         if self.validation_table:
             InputValidator.validate_input_shape(
-                self.validation_table, self.independent_varname,
+                self.validation_table, self.val_ind_var,
                 input_shape, 2, True)
 
 
