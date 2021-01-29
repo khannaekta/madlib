@@ -114,12 +114,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
 
     if object_table is not None:
         object_table = "{0}.{1}".format(schema_madlib, quote_ident(object_table))
-    plpy.info('foo1')
     fit_validator = FitInputValidator(
         source_table, validation_table, model, model_arch_table, model_id,
         num_iterations, metrics_compute_frequency, warm_start,
         use_gpus, accessible_gpus_for_seg, object_table)
-    plpy.info('foo2x')
 
     # source_summary_table = add_postfix(source_table, "_summary")
     # input_tbl_valid(source_summary_table, module_name)

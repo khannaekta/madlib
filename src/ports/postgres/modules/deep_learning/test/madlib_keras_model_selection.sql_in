@@ -371,7 +371,7 @@ SELECT assert(test_input_table($test$SELECT madlib_keras_fit_multiple_model(
 );$test$), 'Failed to assert the correct error message for null mst table');
 
 DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
-SELECT assert(test_input_table($test$SELECT madlib_keras_fit_multiple_model(
+SELECT assert(test_error_msg($test$SELECT madlib_keras_fit_multiple_model(
 	'iris_data_packed',
 	'iris_multiple_model',
 	'mst_table_4row',

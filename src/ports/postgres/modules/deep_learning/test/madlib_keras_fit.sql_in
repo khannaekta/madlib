@@ -61,7 +61,7 @@ SELECT assert(test_input_table($test$SELECT madlib_keras_fit(
     NULL,
     'cifar_10_sample_val')$test$), 'Failed to assert the correct error message for null model arch table');
 
-SELECT assert(test_input_table($test$SELECT madlib_keras_fit(
+SELECT assert(test_error_msg($test$SELECT madlib_keras_fit(
     'cifar_10_sample_batched',
     'keras_saved_out',
     'model_arch',
