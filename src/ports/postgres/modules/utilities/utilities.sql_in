@@ -542,29 +542,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.test_input_table(
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.test_error_msg(
   stmt TEXT,
-  msg  TEXT DEFAULT NULL
+  msg  TEXT
 )
 RETURNS BOOLEAN AS $$
 try:
     plpy.execute(stmt)
     return TRUE
 except Exception as ex:
-    msg_to_check = msg if msg else "NULL/empty input table name"
-    return msg_to_check in ex.message
+    return msg in ex.message
 $$ LANGUAGE plpythonu;
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.test_input_table(
+  stmt TEXT
+)
+RETURNS BOOLEAN AS $$
+SELECT MADLIB_SCHEMA.test_error_msg(stmt, 'NULL/empty input table name');
+$$ LANGUAGE SQL;
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.test_output_table(
   stmt TEXT
 )
 RETURNS BOOLEAN AS $$
-try:
-    plpy.execute(stmt)
-    return TRUE
-except Exception as ex:
-    return "NULL/empty output table name" in ex.message
-$$ LANGUAGE plpythonu;
+SELECT MADLIB_SCHEMA.test_error_msg(stmt, 'NULL/empty output table name');
+$$ LANGUAGE SQL;
 
 -- A few of the gucs like plan_cache_mode and dev_opt_unsafe_truncate_in_subtransaction
 -- are only available in either > pg 11 or > gpdb 6.5. Using this function we
