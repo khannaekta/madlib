@@ -55,6 +55,7 @@ class BasePredict():
         self.module_name = module_name
 
         self.use_gpus = use_gpus if use_gpus else False
+        input_tbl_valid(test_table, module_name)
         self.segments_per_host = get_data_distribution_per_segment(test_table)
         if self.use_gpus:
             accessible_gpus_for_seg = get_accessible_gpus_for_seg(schema_madlib,
