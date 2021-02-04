@@ -27,6 +27,20 @@ agent {
         }
     }
 stages {
+stage('Checkout') {
+            steps {
+                echo 'Checking out branch '
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo 'Building'
+                sh 'bash ./tool/jenkins/rat_check.sh'
+            }
+        }
+
     stage ('ExecuteTestScript') {
         steps {
             // Load script from package path
