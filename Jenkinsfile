@@ -1,3 +1,4 @@
+pipeline {
 stages {
     stage ('ExecuteTestScript') {
         steps {
@@ -11,4 +12,5 @@ stages {
             sh 'bash ./rat_check.sh'
         }
     }
+}
 }
