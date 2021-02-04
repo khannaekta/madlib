@@ -1,4 +1,10 @@
 pipeline {
+
+agent {
+        node {
+            label 'madlib'
+        }
+    }
 stages {
     stage ('ExecuteTestScript') {
         steps {
