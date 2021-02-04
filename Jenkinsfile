@@ -2,7 +2,7 @@ pipeline {
 
 agent {
         node {
-            label 'madlib'
+            label 'ubuntu'
         }
     }
 stages {
