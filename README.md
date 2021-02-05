@@ -6,6 +6,8 @@ machine learning methods for structured and unstructured data.
 
 [![master build status](https://builds.apache.org/buildStatus/icon?job=madlib-master-build&style=plastic)](https://builds.apache.org/job/madlib-master-build)
 
+TEST 
+
 Installation and Contribution
 ==============================
 See the project website  [MADlib Home](http://madlib.apache.org/) for links to the
