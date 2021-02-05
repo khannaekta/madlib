@@ -34,12 +34,12 @@ stage('Checkout') {
             }
         }
 
-        stage('Build') {
-            steps {
-                echo 'Building'
-                sh 'bash ./tool/jenkins/jenkins_build.sh'
-            }
-        }
+ //       stage('Build') {
+ //           steps {
+ //               echo 'Building'
+ //               sh 'bash ./tool/jenkins/jenkins_build.sh'
+ //           }
+ //       }
         stage('Ratcheck') {
             steps {
                 echo 'Building'
