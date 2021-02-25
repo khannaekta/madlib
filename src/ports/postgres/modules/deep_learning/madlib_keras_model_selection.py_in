@@ -161,12 +161,13 @@ class MstLoader():
                             {compile_params} VARCHAR,
                             {fit_params} VARCHAR,
                             unique ({model_id}, {compile_params}, {fit_params})
-                        );
+                        ) WITH (APPENDONLY=FALSE);
                        """.format(self=self,
                                   mst_key=ModelSelectionSchema.MST_KEY,
                                   model_id=ModelSelectionSchema.MODEL_ID,
                                   compile_params=ModelSelectionSchema.COMPILE_PARAMS,
                                   fit_params=ModelSelectionSchema.FIT_PARAMS)
+        plpy.info(create_query)
         with MinWarning('warning'):
             plpy.execute(create_query)
 
@@ -555,7 +556,7 @@ class MstSearch():
                             {compile_params} VARCHAR,
                             {fit_params} VARCHAR,
                             unique ({model_id}, {compile_params}, {fit_params})
-                        );
+                        ) WITH (APPENDONLY=FALSE);
                        """.format(self=self,
                                   mst_key=ModelSelectionSchema.MST_KEY,
                                   model_id=ModelSelectionSchema.MODEL_ID,
