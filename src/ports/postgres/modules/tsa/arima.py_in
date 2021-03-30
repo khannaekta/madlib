@@ -192,7 +192,7 @@ def arima_train (schema_madlib, input_table, output_table,
         # use the differenced time series
         (input_table, dist_tbl) = _diff(schema_madlib, input_table, timestamp_col,
                                         timeseries_col, non_seasonal_orders[1],
-                                        chunk_size)
+                                        chunk_size, grouping_cols)
 
     # set initial values
     p = non_seasonal_orders[0]
@@ -205,13 +205,15 @@ def arima_train (schema_madlib, input_table, output_table,
     # we fix the column names: tid, distid and tvals for time, distribution
     # id and an array of current value and p previous values.
     # if the data has been differenced, we only need to do adjustment
+    plpy.info(grouping_cols)
     if d > 0:
         # note that if p == 0 the input_table will be returned
         tbl_ts = _adjust_diff_data(schema_madlib, input_table, p)
     else:
         (tbl_ts, dist_tbl) = _redist_data(schema_madlib, input_table, timestamp_col,
-                                          timeseries_col, p, chunk_size)
-
+                                          timeseries_col, p, chunk_size=chunk_size, grouping_cols=grouping_cols)
+    plpy.info(tbl_ts, dist_tbl)
+    # return None
     # inital values of phi and theta
     if param_init == 'random':
         # random values in [-0.05, 0.05]
@@ -242,7 +244,7 @@ def arima_train (schema_madlib, input_table, output_table,
     tbl_jj_g = None
     g, z2, u, tbl_grp_init, tbl_jj_g = \
                 _compute_onestep(schema_madlib, tbl_ts, p, q, phi, theta,
-                                 mean, tbl_grp_init, tbl_jj_g, 0, 1)
+                                 mean, tbl_grp_init, tbl_jj_g, 0, 1, grouping_cols)
     u = tau * u
 
     # update phi, theta and mean etc in iterations
@@ -254,7 +256,7 @@ def arima_train (schema_madlib, input_table, output_table,
     # previous iteration number
     prev_iter = 1
     iter_count = 1
-
+    # return None
     while not stop and k <= max_iter:
         k += 1
         rho = 0
@@ -283,7 +285,7 @@ def arima_train (schema_madlib, input_table, output_table,
                                               p, q, phi_new, theta_new,
                                               mean_new, tbl_grp_init,
                                               tbl_jj_g,
-                                              prev_iter, iter_count)
+                                              prev_iter, iter_count, grouping_cols)
 
                 rho = ((z2 - z2_new) /
                        _vec_inner_prod(delta,
@@ -470,7 +472,8 @@ def _validate_params (schema_madlib, input_table, output_table, timestamp_col,
     _assert(isinstance(include_mean, bool),
             "ARIMA error: include_mean is not a Boolean! ")
     if grouping_cols:
-        _assert(columns_exist_in_table(input_table, grouping_cols, schema_madlib),
+        plpy.info(grouping_cols)
+        _assert(columns_exist_in_table(input_table, [grouping_cols], schema_madlib),
                                        "ARIMA error: Some of the grouping "
                                        " columns do not exist in {0}!".
                                        format(input_table))
@@ -583,7 +586,7 @@ def _extract_params (schema_madlib, optimizer_params):
     if name_value["hessian_delta"] <= 0:
         plpy.error("ARIMA error: hessian_delta must be positive!")
 
-    if name_value["chunk_size"] < 10000:
+    if name_value["chunk_size"] < 1:
         plpy.error("ARIMA error: chunk_size must be at least 10000!")
 
     if name_value["param_init"] not in ('zero', 'random'):
@@ -596,7 +599,7 @@ def _extract_params (schema_madlib, optimizer_params):
 # -----------------------------------------------------------------------
 
 def _redist_data(schema_madlib, input_table, timestamp_col,
-                 timeseries_col, d, chunk_size=10000):
+                 timeseries_col, d, chunk_size=10000, grouping_cols=None):
     """ Re-distribute data for parallel differencing
 
     @brief Redistribute the data by distributing the consecutive records
@@ -622,23 +625,30 @@ def _redist_data(schema_madlib, input_table, timestamp_col,
 
     # Redistribute the data
     # <tid, tval, distid>
+    grouping_clause = ""
+    if grouping_cols:
+        grouping_clause = ", {0}".format(grouping_cols)
+        part_clause = "PARTITION BY {0}".format(grouping_cols)
+    plpy.info(grouping_cols, grouping_clause)
     plpy.execute(
         """
         create temp table {dist_table} as
             select
                 ((tid - 1) / {chunk_size})::integer + 1 as distid,
                 tid, origin_tid, tval
+                {grouping_clause}
             from (
                 select
                     row_number() over (order by {timestamp_col}) as tid,
                     {timestamp_col} as origin_tid,
                     {timeseries_col} as tval
+                    {grouping_clause}
                 from
                     {input_table}
             ) s
             m4_ifdef(`__POSTGRESQL__', `', `distributed by (distid)')
         """.format(dist_table=dist_table, chunk_size=chunk_size,
-                   timestamp_col=timestamp_col,
+                   timestamp_col=timestamp_col, grouping_clause=grouping_clause,
                    timeseries_col=timeseries_col, input_table=input_table))
 
     #  Insert redundant rows
@@ -651,6 +661,7 @@ def _redist_data(schema_madlib, input_table, timestamp_col,
             insert into {dist_table}
                 select
                     o.distid + 1, tid, NULL, tval
+                    {grouping_clause}
                 from (
                     select
                         distid, max(tid) maxid
@@ -663,7 +674,7 @@ def _redist_data(schema_madlib, input_table, timestamp_col,
                 where
                     q1.distid = o.distid and
                     q1.maxid - o.tid < {d}
-            """.format(dist_table=dist_table, d=d))
+            """.format(dist_table=dist_table, d=d, grouping_clause=grouping_clause))
 
     output_table = unique_string() + "redist_agg__"
     # Aggregate the chunk into an array
@@ -677,23 +688,23 @@ def _redist_data(schema_madlib, input_table, timestamp_col,
         """
         create temp table {output_table} as
         select
-            distid,
+            distid {grouping_clause},
             (distid - 1) * {chunk_size} + 1 as tid,
             array_agg(tval order by tid) as tvals
         from
             {dist_table}
         group by
-            distid
+            distid {grouping_clause}
         m4_ifdef(`__POSTGRESQL__', `', `distributed by (distid)')
         """.format(schema_madlib=schema_madlib, output_table=output_table, dist_table=dist_table,
-                   chunk_size=chunk_size))
+                   chunk_size=chunk_size, grouping_clause=grouping_clause))
 
     return (output_table, dist_table)
 
 # -----------------------------------------------------------------------
 
 def _diff (schema_madlib, input_table, timestamp_col, timeseries_col, d,
-           chunk_size=10000):
+           chunk_size=10000, grouping_cols=None):
     """ Compute the time series differencing
 
     @brief For a time series ts, compute (1-B)^d ts, where d is the diff
@@ -713,7 +724,7 @@ def _diff (schema_madlib, input_table, timestamp_col, timeseries_col, d,
     # Redistribute the data for parallel preprocessing
     (redist_table, dist_tbl) = _redist_data(
         schema_madlib, input_table, timestamp_col, timeseries_col, d,
-        chunk_size)
+        chunk_size, grouping_cols)
     output_table = unique_string() + 'diff_tbl__'
 
     # Generate the coefficients for d-th order differencing
@@ -864,7 +875,7 @@ def _create_resid_tbl (schema_madlib, tbl_ts, p, d, q, phi,
 
 def _compute_onestep (schema_madlib, tbl_ts, p, q, phi, theta, mean,
                       tbl_grp_init=None, tbl_jj_g=None, prev_iter=0,
-                      iter_count=0):
+                      iter_count=0, grouping_cols=None):
     """ Call an aggregate function to compute quantities in an
         iteration
 
@@ -928,8 +939,12 @@ def _compute_onestep (schema_madlib, tbl_ts, p, q, phi, theta, mean,
         tbl_grp_init = unique_string() + "init__"
         # How many groups
         ngrps = plpy.execute("""
-            select max(distid) as ngrps from {0}
-            """.format(tbl_ts))[0]['ngrps']
+            select {1} as grp, max(distid) as ngrps from {0} GROUP BY {1}
+            """.format(tbl_ts, grouping_cols))#[0]['ngrps']
+        # ngrps = plpy.execute("""
+        #     select count(distinct(distid, grp)) as ngrps from {0}
+        #     """.format(tbl_ts))[0]['ngrps']
+
         l = p + q if mean == "NULL" else p + q + 1
 
         # initial previous iteration values, use 0
@@ -948,11 +963,13 @@ def _compute_onestep (schema_madlib, tbl_ts, p, q, phi, theta, mean,
         # Each group uses previous group's final prez and prej from
         # previous iteration.
         # ** First group's prez and prej are always 0. **
+        grp = ngrps[0]['grp']
+        ngrp = ngrps[0]['ngrps']
         plpy.execute(
             """
             create temp table {tbl_grp_init} as
                 select
-                    i as distid,
+                    i as distid, {grp} as {grouping_cols}, 
                     {arrz}::double precision[] as prez,
                     {arrj}::double precision[] as prej,
                     {arrjj}::double precision[] as jj,
@@ -960,10 +977,29 @@ def _compute_onestep (schema_madlib, tbl_ts, p, q, phi, theta, mean,
                     0.0::double precision as z2, 0 as iter
                 from generate_series(1,{ngrps}) i
             m4_ifdef(`__POSTGRESQL__', `', `distributed by (distid, iter)');
-            alter table {tbl_grp_init} add primary key (distid, iter);
+            alter table {tbl_grp_init} add primary key (distid, {grouping_cols}, iter);
             """.format(tbl_grp_init=tbl_grp_init, arrz=arrz_str,
-                       arrj=arrj_str, ngrps=ngrps, arrjj=arrjj_str,
+                       arrj=arrj_str, grp=grp, ngrps=ngrp, grouping_cols=grouping_cols,
+                       arrjj=arrjj_str,
                        arrjz=arrjz_str))
+        for g in ngrps[1:]:
+            grp = g['grp']
+            ngrp = g['ngrps']
+            plpy.execute(
+                """
+                INSERT INTO {tbl_grp_init}
+                    select
+                        i as distid, {grp} as {grouping_cols}, 
+                        {arrz}::double precision[] as prez,
+                        {arrj}::double precision[] as prej,
+                        {arrjj}::double precision[] as jj,
+                        {arrjz}::double precision[] as jz,
+                        0.0::double precision as z2, 0 as iter
+                    from generate_series(1,{ngrps}) i;
+                """.format(tbl_grp_init=tbl_grp_init, arrz=arrz_str,
+                           arrj=arrj_str, grp=grp, ngrps=ngrp, grouping_cols=grouping_cols,
+                           arrjj=arrjj_str,
+                           arrjz=arrjz_str))
 
     if tbl_jj_g is None:
         tbl_jj_g = unique_string() + "jj_g__"
@@ -974,17 +1010,18 @@ def _compute_onestep (schema_madlib, tbl_ts, p, q, phi, theta, mean,
                 jz     double precision[],
                 z2    double precision,
                 u     double precision,
-                iter  integer
+                iter  integer, grp integer
             )
             m4_ifdef(`__POSTGRESQL__', `', `distributed by (iter)');
-            alter table {tbl_jj_g} add primary key (iter);
+            alter table {tbl_jj_g} add primary key (grp, iter);
             """.format(tbl_jj_g=tbl_jj_g))
 
+    grouping_clause = ", {0}".format(grouping_cols)
     plpy.execute(
         """
         insert into {tbl_grp_init}
             select
-                distid, (f).prez, (f).prej, (f).jj, (f).jz, (f).z2,
+                distid {grouping_clause}, (f).prez, (f).prej, (f).jj, (f).jz, (f).z2,
                 {iter_count}
             from (
                 select
@@ -994,43 +1031,48 @@ def _compute_onestep (schema_madlib, tbl_ts, p, q, phi, theta, mean,
                         {theta}::double precision[],
                         {mean}, prez, prej
                     ) as f,
-                    s1.distid
+                    s1.distid, s1.{grouping_cols}
                 --from {tbl_ts} s1, {tbl_grp_init} s2
                 --where
                 --    (s1.distid = s2.distid + 1 or
                 --    (s1.distid = 1 and s2.distid = 1)) and
                 --    s2.iter = {prev_iter}
                 from {tbl_ts} s1 left join {tbl_grp_init} s2
-                on (s1.distid = s2.distid + 1 and s2.iter = {prev_iter})
+                on (s1.distid = s2.distid + 1 and s2.iter = {prev_iter} and s1.{grouping_cols} = s2.{grouping_cols})
             ) s
         """.format(schema_madlib=schema_madlib, tbl_ts=tbl_ts,
                    tbl_grp_init=tbl_grp_init, p=p, q=q,
                    phi=phi_str, mean=mean,
                    theta=theta_str,
                    iter_count=iter_count,
-                   prev_iter=prev_iter))
+                   prev_iter=prev_iter,
+                   grouping_clause=grouping_clause,
+                   grouping_cols=grouping_cols))
 
     # Need to sum J^T*J, J^T*Z and Z^2 over all groups to get
     # the result.
     plpy.execute(
         """
         insert into {tbl_jj_g}
-            select (f).jj, (f).jz, (f).z2, (f).u, {iter_count}
+            select (f).jj, (f).jz, (f).z2, (f).u, {iter_count}, {grouping_cols}
             from (
                 select
                     {schema_madlib}.__arima_lm_result_agg(
                         jj, jz, z2
-                    ) as f
+                    ) as f, {grouping_cols}
                 from {tbl_grp_init}
                 where iter = {iter_count}
+                GROUP BY {grouping_cols}
             ) s
         """.format(schema_madlib=schema_madlib, tbl_jj_g=tbl_jj_g,
-                   tbl_grp_init=tbl_grp_init, iter_count=iter_count))
+                   tbl_grp_init=tbl_grp_init, iter_count=iter_count,
+                   grouping_cols=grouping_cols))
 
     res = plpy.execute("select jz, z2, u from {tbl_jj_g} where"
                        " iter = {iter_count}".format(tbl_jj_g=tbl_jj_g,
                                                      iter_count=iter_count))[0]
-
+    plpy.info(tbl_grp_init, tbl_jj_g)
+    plpy.info(res['jz'], res['z2'], res['u'])
     return (madvec(res['jz'], text = False),
             res['z2'], res['u'], tbl_grp_init, tbl_jj_g)
 
